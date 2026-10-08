@@ -1,0 +1,18 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "fstudy-api",
+  "main": "src/entrypoints/worker.ts",
+  "compatibility_date": "2026-10-01",
+  "vars": {
+    "AUTH_MODE": "disabled",
+    "ALLOWED_ORIGINS": "https://REPLACE_WITH_WEB_ORIGIN"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "fstudy",
+      "database_id": "REPLACE_WITH_D1_DATABASE_ID",
+      "migrations_dir": "migrations"
+    }
+  ]
+}

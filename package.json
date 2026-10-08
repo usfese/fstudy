@@ -1,0 +1,13 @@
+{
+  "name": "fstudy",
+  "private": true,
+  "packageManager": "pnpm@11.28.4",
+  "scripts": {
+    "dev": "pnpm --filter @fstudy/api dev",
+    "build": "pnpm --filter @fstudy/api build",
+    "check": "pnpm --filter @fstudy/api check",
+    "test": "pnpm --filter @fstudy/api test",
+    "db:migrate:local": "pnpm --filter @fstudy/api db:migrate:local",
+    "db:migrate:remote": "pnpm --filter @fstudy/api db:migrate:remote"
+  }
+}

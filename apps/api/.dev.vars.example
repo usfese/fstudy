@@ -1,0 +1,2 @@
+AUTH_MODE=disabled
+STUDENT_ID_PEPPER=replace-with-a-long-random-secret
