@@ -93,6 +93,35 @@ export const ForumReplySchema = z.object({
   body: z.string().trim().min(1).max(2000),
 });
 
+export const AdminLoginSchema = z.object({
+  username: z.string().trim().min(3).max(64),
+  password: z.string().min(1).max(128),
+});
+export const AdminPasswordSchema = z.object({
+  currentPassword: z.string().min(1).max(128),
+  newPassword: z.string().min(14).max(128),
+});
+
+export const ContentReportSchema = z.object({
+  targetType: z.enum(['forum_post', 'forum_reply', 'project']),
+  targetId: z.string().min(1).max(64),
+  reason: z.string().trim().min(5).max(500),
+});
+
+export const AcademicSettingsSchema = z.object({
+  semesterStartDate: z.iso.date().nullable(),
+});
+
+export const AdminUserStatusSchema = z.object({ status: z.enum(['active', 'suspended']) });
+export const AdminContentActionSchema = z.object({ action: z.enum(['hide', 'restore', 'delete']) });
+export const AdminReportStatusSchema = z.object({ status: z.enum(['resolved', 'dismissed']) });
+export const AdminTagSchema = z.object({
+  id: z.string().trim().min(1).max(100).optional(),
+  category: z.enum(['interest', 'field', 'goal']),
+  name: z.string().trim().min(1).max(40),
+  active: z.boolean().default(true),
+});
+
 export const CourseSchema = z.object({
   name: z.string().trim().min(1).max(80),
   teacher: z.string().trim().max(50).nullable().default(null),

@@ -37,4 +37,6 @@ export type RuntimeDependencies = {
   studentIdPepper: string;
   clock?: () => Date;
   allowedOrigins?: string[];
+  adminBootstrapUsername?: string | undefined;
+  adminBootstrapPassword?: string | undefined;
 };

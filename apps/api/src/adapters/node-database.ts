@@ -13,6 +13,10 @@ export class NodeSqliteDatabase implements SqlDatabase {
     this.client.exec(sql);
   }
 
+  close(): void {
+    this.client.close();
+  }
+
   async execute<Row extends Record<string, unknown>>(statement: SqlStatement): Promise<SqlResult<Row>> {
     const prepared = this.client.prepare(statement.sql);
     const params = statement.params ?? [];

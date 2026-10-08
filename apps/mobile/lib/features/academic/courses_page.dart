@@ -14,16 +14,29 @@ class CoursesPage extends StatefulWidget {
 
 class _CoursesPageState extends State<CoursesPage> {
   late Future<List<Course>> _courses;
+  late Future<DateTime?> _semesterStartDate;
   int _selectedWeek = 1;
   bool _weeklyView = true;
+  bool _savingSemesterDate = false;
 
   @override
   void initState() {
     super.initState();
     _reload();
+    _semesterStartDate = _loadSemesterStartDate();
   }
 
   void _reload() => _courses = widget.repository.listCourses();
+
+  Future<DateTime?> _loadSemesterStartDate() async {
+    final date = await widget.repository.getSemesterStartDate();
+    if (mounted && date != null) {
+      setState(
+        () => _selectedWeek = _teachingWeek(date, DateTime.now()).clamp(1, 30),
+      );
+    }
+    return date;
+  }
 
   Future<void> _add() async {
     final created = await showDialog<bool>(
@@ -61,67 +74,206 @@ class _CoursesPageState extends State<CoursesPage> {
             );
           }
           final courses = snapshot.data!;
-          if (courses.isEmpty) {
-            return const _EmptyView(
-              icon: Icons.calendar_month_outlined,
-              title: '还没有课程',
-              detail: '点击右下角添加第一门课程。',
-            );
-          }
           return Column(
             children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
-                child: Wrap(
-                  spacing: 12,
-                  runSpacing: 8,
-                  crossAxisAlignment: WrapCrossAlignment.center,
-                  children: [
-                    SegmentedButton<bool>(
-                      segments: const [
-                        ButtonSegment(
-                          value: true,
-                          icon: Icon(Icons.view_week_outlined),
-                          label: Text('周视图'),
-                        ),
-                        ButtonSegment(
-                          value: false,
-                          icon: Icon(Icons.view_list_outlined),
-                          label: Text('列表'),
-                        ),
-                      ],
-                      selected: {_weeklyView},
-                      onSelectionChanged: (value) =>
-                          setState(() => _weeklyView = value.first),
-                    ),
-                    if (_weeklyView)
-                      DropdownButton<int>(
-                        key: const Key('scheduleWeekSelector'),
-                        value: _selectedWeek,
-                        items: List.generate(
-                          30,
-                          (index) => DropdownMenuItem(
-                            value: index + 1,
-                            child: Text('第 ${index + 1} 周'),
+              _SemesterSettings(
+                repository: widget.repository,
+                initialDate: _semesterStartDate,
+                saving: _savingSemesterDate,
+                onSavingChanged: (value) => setState(() {
+                  _savingSemesterDate = value;
+                }),
+                onSaved: (date) => setState(() {
+                  _semesterStartDate = Future.value(date);
+                  if (date != null) {
+                    _selectedWeek = _teachingWeek(
+                      date,
+                      DateTime.now(),
+                    ).clamp(1, 30);
+                  }
+                }),
+              ),
+              if (courses.isEmpty)
+                const Expanded(
+                  child: _EmptyView(
+                    icon: Icons.calendar_month_outlined,
+                    title: '还没有课程',
+                    detail: '点击右下角添加第一门课程。',
+                  ),
+                )
+              else ...[
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+                  child: Wrap(
+                    spacing: 12,
+                    runSpacing: 8,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: [
+                      SegmentedButton<bool>(
+                        segments: const [
+                          ButtonSegment(
+                            value: true,
+                            icon: Icon(Icons.view_week_outlined),
+                            label: Text('周视图'),
                           ),
-                        ),
-                        onChanged: (value) =>
-                            setState(() => _selectedWeek = value!),
+                          ButtonSegment(
+                            value: false,
+                            icon: Icon(Icons.view_list_outlined),
+                            label: Text('列表'),
+                          ),
+                        ],
+                        selected: {_weeklyView},
+                        onSelectionChanged: (value) =>
+                            setState(() => _weeklyView = value.first),
                       ),
-                  ],
+                      if (_weeklyView)
+                        FutureBuilder<DateTime?>(
+                          future: _semesterStartDate,
+                          builder: (context, dateSnapshot) {
+                            final startDate = dateSnapshot.data;
+                            final currentWeek = startDate == null
+                                ? 1
+                                : _teachingWeek(startDate, DateTime.now());
+                            final selectedWeek = _selectedWeek.clamp(1, 30);
+                            return DropdownButton<int>(
+                              key: const Key('scheduleWeekSelector'),
+                              value: selectedWeek,
+                              items: List.generate(
+                                30,
+                                (index) => DropdownMenuItem(
+                                  value: index + 1,
+                                  child: Text(
+                                    '第 ${index + 1} 周${index + 1 == currentWeek ? ' · 本周' : ''}',
+                                  ),
+                                ),
+                              ),
+                              onChanged: (value) =>
+                                  setState(() => _selectedWeek = value!),
+                            );
+                          },
+                        ),
+                    ],
+                  ),
                 ),
-              ),
-              Expanded(
-                child: _weeklyView
-                    ? _WeeklySchedule(courses: courses, week: _selectedWeek)
-                    : _CourseList(courses: courses),
-              ),
+                Expanded(
+                  child: _weeklyView
+                      ? _WeeklySchedule(courses: courses, week: _selectedWeek)
+                      : _CourseList(courses: courses),
+                ),
+              ],
             ],
           );
         },
       ),
     );
   }
+}
+
+int _teachingWeek(DateTime semesterStartDate, DateTime date) {
+  final start = DateTime.utc(
+    semesterStartDate.year,
+    semesterStartDate.month,
+    semesterStartDate.day,
+  );
+  final today = DateTime.utc(date.year, date.month, date.day);
+  final elapsedDays = today.difference(start).inDays;
+  if (elapsedDays < 0) return 1;
+  return (elapsedDays ~/ 7) + 1;
+}
+
+class _SemesterSettings extends StatefulWidget {
+  const _SemesterSettings({
+    required this.repository,
+    required this.initialDate,
+    required this.saving,
+    required this.onSavingChanged,
+    required this.onSaved,
+  });
+
+  final AcademicRepository repository;
+  final Future<DateTime?> initialDate;
+  final bool saving;
+  final ValueChanged<bool> onSavingChanged;
+  final ValueChanged<DateTime?> onSaved;
+
+  @override
+  State<_SemesterSettings> createState() => _SemesterSettingsState();
+}
+
+class _SemesterSettingsState extends State<_SemesterSettings> {
+  late Future<DateTime?> _date;
+
+  @override
+  void initState() {
+    super.initState();
+    _date = widget.initialDate;
+  }
+
+  Future<void> _pick(DateTime? current) async {
+    final today = DateTime.now();
+    final picked = await showDatePicker(
+      context: context,
+      initialDate:
+          current ??
+          DateTime(today.year, today.month, today.day - (today.weekday - 1)),
+      firstDate: DateTime(today.year - 2),
+      lastDate: DateTime(today.year + 2),
+      helpText: '选择学期第一周的星期一',
+      selectableDayPredicate: (date) => date.weekday == DateTime.monday,
+    );
+    if (picked == null) return;
+    if (mounted) widget.onSavingChanged(true);
+    try {
+      await widget.repository.setSemesterStartDate(picked);
+      if (!mounted) return;
+      setState(() {
+        _date = Future.value(picked);
+      });
+      widget.onSaved(picked);
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('学期起始日期已保存')));
+    } on AcademicFailure catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(error.message)));
+      }
+    } finally {
+      if (mounted) widget.onSavingChanged(false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => FutureBuilder<DateTime?>(
+    future: _date,
+    builder: (context, snapshot) {
+      final date = snapshot.data;
+      return Padding(
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+        child: Card(
+          child: ListTile(
+            key: const Key('semesterStartDateSetting'),
+            leading: const Icon(Icons.date_range_outlined),
+            title: const Text('学期第一周起始日期'),
+            subtitle: Text(
+              date == null
+                  ? '尚未设置；设置后可计算本周教学周次'
+                  : '${date.year}年${date.month}月${date.day}日（星期一）',
+            ),
+            trailing: widget.saving
+                ? const SizedBox.square(
+                    dimension: 22,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : TextButton(
+                    key: const Key('setSemesterStartDateButton'),
+                    onPressed: () => _pick(date),
+                    child: Text(date == null ? '设置' : '修改'),
+                  ),
+          ),
+        ),
+      );
+    },
+  );
 }
 
 class _CourseList extends StatelessWidget {

@@ -33,6 +33,12 @@ class AppShell extends StatelessWidget {
         label: '课表',
       ),
       NavigationDestination(
+        key: Key('campusMapNavigationDestination'),
+        icon: Icon(Icons.map_outlined),
+        selectedIcon: Icon(Icons.map),
+        label: '地图',
+      ),
+      NavigationDestination(
         icon: Icon(Icons.task_alt_outlined),
         selectedIcon: Icon(Icons.task_alt),
         label: '作业',

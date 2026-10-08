@@ -4,6 +4,7 @@
   "packageManager": "pnpm@11.28.4",
   "scripts": {
     "dev": "pnpm --filter @fstudy/api dev",
+    "admin:dev": "python3 -m http.server 8081 --bind 127.0.0.1 --directory apps/admin",
     "build": "pnpm --filter @fstudy/api build",
     "check": "pnpm --filter @fstudy/api check",
     "test": "pnpm --filter @fstudy/api test",

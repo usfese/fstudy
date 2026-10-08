@@ -9,6 +9,7 @@ import 'features/auth/auth_repository.dart';
 import 'features/community/community_page.dart';
 import 'features/community/forum_repository.dart';
 import 'features/home/home_page.dart';
+import 'features/map/campus_map_page.dart';
 import 'features/plans/plan_repository.dart';
 import 'features/plans/plans_page.dart';
 import 'features/profile/profile_page.dart';
@@ -80,6 +81,12 @@ class _FStudyAppState extends State<FStudyApp> {
                 GoRoute(
                   path: '/',
                   builder: (context, state) => HomePage(session: _session!),
+                  routes: [
+                    GoRoute(
+                      path: 'map',
+                      builder: (context, state) => const CampusMapPage(),
+                    ),
+                  ],
                 ),
               ],
             ),
@@ -89,6 +96,14 @@ class _FStudyAppState extends State<FStudyApp> {
                   path: '/schedule',
                   builder: (context, state) =>
                       CoursesPage(repository: _academicRepository!),
+                ),
+              ],
+            ),
+            StatefulShellBranch(
+              routes: [
+                GoRoute(
+                  path: '/map',
+                  builder: (context, state) => const CampusMapPage(),
                 ),
               ],
             ),

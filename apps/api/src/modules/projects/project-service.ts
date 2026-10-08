@@ -34,8 +34,8 @@ export class ProjectService {
                    (SELECT COUNT(*) FROM project_members pm WHERE pm.project_id = p.id) AS member_count,
                    (SELECT pa.status FROM project_applications pa
                     WHERE pa.project_id = p.id AND pa.applicant_id = ?) AS my_application_status
-            FROM projects p JOIN users u ON u.id = p.owner_id
-            WHERE ${conditions.join(' AND ')}
+             FROM projects p JOIN users u ON u.id = p.owner_id
+             WHERE ${conditions.length ? `${conditions.join(' AND ')} AND ` : ''}p.moderation_status = 'visible'
             ORDER BY CASE p.status WHEN 'recruiting' THEN 0 WHEN 'in_progress' THEN 1 ELSE 2 END,
                      p.updated_at DESC
             LIMIT 100`,

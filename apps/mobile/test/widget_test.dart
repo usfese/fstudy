@@ -44,6 +44,15 @@ class FakeAuthRepository implements AuthRepository {
 class FakeAcademicRepository implements AcademicRepository {
   final List<Course> courses = [];
   final List<Assignment> assignments = [];
+  DateTime? semesterStartDate;
+
+  @override
+  Future<DateTime?> getSemesterStartDate() async => semesterStartDate;
+
+  @override
+  Future<void> setSemesterStartDate(DateTime? date) async {
+    semesterStartDate = date;
+  }
 
   @override
   Future<List<Course>> listCourses() async => courses;
@@ -453,11 +462,15 @@ class FakeProjectRepository implements ProjectRepository {
           .toList();
     }
   }
+
+  @override
+  Future<void> reportProject(String projectId, String reason) async {}
 }
 
 class FakeForumRepository implements ForumRepository {
   List<ForumPost> posts = [];
   final Map<String, List<ForumReply>> replies = {};
+  final List<String> reports = [];
 
   @override
   Future<List<ForumPost>> listPosts({String? category}) async => posts
@@ -510,6 +523,15 @@ class FakeForumRepository implements ForumRepository {
                 ),
         )
         .toList();
+  }
+
+  @override
+  Future<void> reportContent({
+    required String targetType,
+    required String targetId,
+    required String reason,
+  }) async {
+    reports.add('$targetType:$targetId:$reason');
   }
 }
 
@@ -595,6 +617,35 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('还没有课程'), findsOneWidget);
+  });
+
+  testWidgets('campus map opens with searchable campus locations', (
+    tester,
+  ) async {
+    await tester.pumpWidget(testApp(FakeAcademicRepository()));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('campusMapNavigationDestination')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('校区地图'), findsOneWidget);
+    await tester.enterText(
+      find.byKey(const Key('campusMapSearchField')),
+      '甲子钟',
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('甲子钟'), findsWidgets);
+    expect(find.text('雁南园'), findsNothing);
+  });
+
+  testWidgets('campus map route is available from primary navigation', (
+    tester,
+  ) async {
+    await tester.pumpWidget(testApp(FakeAcademicRepository()));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('campusMapNavigationDestination')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('打开北邮官方沙河校区平面图'), findsOneWidget);
   });
 
   testWidgets('a newly created course appears without a page refresh', (
@@ -690,12 +741,64 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('计算机网络'), findsOneWidget);
 
-    await tester.tap(find.text('第 1 周'));
+    await tester.tap(find.byKey(const Key('scheduleWeekSelector')));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('第 2 周').last);
+    await tester.tap(find.textContaining('第 2 周').last);
     await tester.pumpAndSettle();
 
     expect(find.text('第 2 周没有课程'), findsOneWidget);
+  });
+
+  testWidgets(
+    'semester start date selects and labels the current teaching week',
+    (tester) async {
+      final repository = FakeAcademicRepository()
+        ..semesterStartDate = DateTime(2026, 10, 5)
+        ..courses.add(
+          const Course(
+            id: 'networks',
+            name: '计算机网络',
+            teacher: null,
+            color: '#3559C7',
+            meetings: [
+              CourseMeeting(
+                weekday: 1,
+                startMinute: 480,
+                endMinute: 570,
+                startWeek: 1,
+                endWeek: 16,
+                weekParity: 'all',
+              ),
+            ],
+          ),
+        );
+      await tester.pumpWidget(testApp(repository));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('本周课表'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('2026年10月5日（星期一）'), findsOneWidget);
+      await tester.tap(find.byKey(const Key('scheduleWeekSelector')));
+      await tester.pumpAndSettle();
+      expect(find.text('第 1 周 · 本周'), findsWidgets);
+    },
+  );
+
+  testWidgets('a user can set the semester start date from the schedule', (
+    tester,
+  ) async {
+    final repository = FakeAcademicRepository();
+    await tester.pumpWidget(testApp(repository));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('本周课表'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('setSemesterStartDateButton')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('OK'));
+    await tester.pumpAndSettle();
+
+    expect(repository.semesterStartDate?.weekday, DateTime.monday);
+    expect(find.textContaining('星期一'), findsOneWidget);
   });
 
   testWidgets('an assignment can be associated with a course', (tester) async {
@@ -780,9 +883,9 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('课表'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('第 1 周'));
+    await tester.tap(find.byKey(const Key('scheduleWeekSelector')));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('第 2 周').last);
+    await tester.tap(find.textContaining('第 2 周').last);
     await tester.pumpAndSettle();
 
     await tester.tap(find.text('作业'));
@@ -1258,5 +1361,35 @@ void main() {
 
     expect(repository.replies['post-1']!.single.body, '建议先复习极限。');
     expect(find.text('建议先复习极限。'), findsOneWidget);
+  });
+
+  testWidgets('a student can report a public discussion post', (tester) async {
+    final repository = FakeForumRepository()
+      ..posts = const [
+        ForumPost(
+          id: 'post-2',
+          authorName: '发帖同学',
+          category: 'campus',
+          title: '需要举报的帖子',
+          body: '公开帖子正文',
+          replyCount: 0,
+        ),
+      ];
+    await tester.pumpWidget(
+      testApp(FakeAcademicRepository(), forumRepository: repository),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('communityNavigationDestination')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('forum-post-post-2')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('reportForumPostButton')));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).last, '内容包含违规信息');
+    await tester.tap(find.widgetWithText(FilledButton, '提交举报'));
+    await tester.pumpAndSettle();
+
+    expect(repository.reports, ['forum_post:post-2:内容包含违规信息']);
+    expect(find.text('举报已提交，感谢反馈'), findsOneWidget);
   });
 }

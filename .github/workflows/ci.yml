@@ -1,0 +1,75 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: API, admin, and Flutter Web
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.28.4
+
+      - name: Install API dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Check API types
+        run: pnpm check
+
+      - name: Test API
+        run: pnpm test
+
+      - name: Build API
+        run: pnpm build
+
+      - name: Check admin console JavaScript
+        run: node --check apps/admin/admin.js
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Install Flutter dependencies
+        working-directory: apps/mobile
+        run: flutter pub get
+
+      - name: Check Dart formatting
+        working-directory: apps/mobile
+        run: dart format --output=none --set-exit-if-changed lib test
+
+      - name: Analyze Flutter app
+        working-directory: apps/mobile
+        run: flutter analyze
+
+      - name: Test Flutter app
+        working-directory: apps/mobile
+        run: flutter test
+
+      - name: Build Flutter Web
+        working-directory: apps/mobile
+        run: flutter build web --release

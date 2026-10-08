@@ -1,13 +1,18 @@
 import { D1SqlDatabase } from '../adapters/d1-database.js';
 import { DevelopmentStudentVerifier, DisabledStudentVerifier } from '../adapters/student-verifier.js';
 import { createApp } from '../http/app.js';
+import { AdminService } from '../modules/admin/admin-service.js';
 
 type WorkerEnvironment = {
   DB: D1Database;
   AUTH_MODE: 'dev' | 'disabled';
   STUDENT_ID_PEPPER: string;
   ALLOWED_ORIGINS?: string;
+  ADMIN_BOOTSTRAP_USERNAME?: string;
+  ADMIN_BOOTSTRAP_PASSWORD?: string;
 };
+
+let adminBootstrap: Promise<void> | null = null;
 
 export default {
   async fetch(request: Request, environment: WorkerEnvironment): Promise<Response> {
@@ -17,7 +22,7 @@ export default {
         { status: 503 },
       );
     }
-    const app = createApp({
+    const dependencies = {
       database: new D1SqlDatabase(environment.DB),
       studentVerifier:
         environment.AUTH_MODE === 'dev'
@@ -28,7 +33,22 @@ export default {
         .split(',')
         .map((origin) => origin.trim())
         .filter(Boolean),
-    });
+      adminBootstrapUsername: environment.ADMIN_BOOTSTRAP_USERNAME,
+      adminBootstrapPassword: environment.ADMIN_BOOTSTRAP_PASSWORD,
+    };
+    if (environment.ADMIN_BOOTSTRAP_USERNAME || environment.ADMIN_BOOTSTRAP_PASSWORD) {
+      try {
+        adminBootstrap ??= new AdminService(dependencies).bootstrap();
+        await adminBootstrap;
+      } catch {
+        adminBootstrap = null;
+        return Response.json(
+          { error: { code: 'service_misconfigured', message: '管理员配置无效' } },
+          { status: 503 },
+        );
+      }
+    }
+    const app = createApp(dependencies);
     return await app.fetch(request);
   },
 };

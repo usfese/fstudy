@@ -15,14 +15,23 @@ import { FriendService } from '../modules/friends/friend-service.js';
 import { AvailabilityService } from '../modules/availability/availability-service.js';
 import { ProjectService } from '../modules/projects/project-service.js';
 import { ForumService } from '../modules/forum/forum-service.js';
-import { requireAuthentication, type AppVariables } from './auth.js';
+import { AdminService } from '../modules/admin/admin-service.js';
+import { requireAdminAuthentication, requireAuthentication, type AppVariables } from './auth.js';
 import {
   AssignmentSchema,
+  AcademicSettingsSchema,
+  AdminContentActionSchema,
+  AdminLoginSchema,
+  AdminPasswordSchema,
+  AdminReportStatusSchema,
+  AdminTagSchema,
+  AdminUserStatusSchema,
   AvailabilityInviteActionSchema,
   AvailabilityInviteSchema,
   AvailabilityQuerySchema,
   CompletionSchema,
   CourseSchema,
+  ContentReportSchema,
   FriendRequestActionSchema,
   FriendRequestSchema,
   ForumPostSchema,
@@ -50,6 +59,7 @@ const OPENAPI_DOCUMENT = {
     '/v1/tags': { get: { summary: '读取受控标签' } },
     '/v1/me/tags': { get: { summary: '读取当前用户标签' }, put: { summary: '替换当前用户标签' } },
     '/v1/courses': { get: { summary: '读取课表' }, post: { summary: '添加课程' } },
+    '/v1/me/academic-settings': { get: { summary: '读取学期设置' }, put: { summary: '设置学期第一周日期' } },
     '/v1/assignments': { get: { summary: '读取作业' }, post: { summary: '添加作业' } },
     '/v1/plans': { get: { summary: '读取自定义安排' }, post: { summary: '添加自定义安排' } },
     '/v1/discover': { get: { summary: '发现可推荐的同学' } },
@@ -68,6 +78,17 @@ const OPENAPI_DOCUMENT = {
     '/v1/forum/posts': { get: { summary: '浏览讨论帖' }, post: { summary: '发布讨论帖' } },
     '/v1/forum/posts/{id}': { get: { summary: '读取帖子和公开回复' } },
     '/v1/forum/posts/{id}/replies': { post: { summary: '公开回复帖子' } },
+    '/v1/reports': { post: { summary: '举报公开内容' } },
+    '/v1/admin/auth/login': { post: { summary: '管理员独立登录' } },
+    '/v1/admin/auth/password': { put: { summary: '修改管理员密码并撤销会话' } },
+    '/v1/admin/overview': { get: { summary: '读取运营数据总览' } },
+    '/v1/admin/users': { get: { summary: '搜索用户' } },
+    '/v1/admin/users/{id}/status': { patch: { summary: '封禁或恢复用户' } },
+    '/v1/admin/content': { get: { summary: '读取待管理内容' } },
+    '/v1/admin/content/{type}/{id}': { patch: { summary: '隐藏、恢复或删除内容' } },
+    '/v1/admin/reports': { get: { summary: '处理举报' } },
+    '/v1/admin/tags': { get: { summary: '管理受控标签' }, post: { summary: '创建或编辑受控标签' } },
+    '/v1/admin/audit': { get: { summary: '读取管理操作审计日志' } },
   },
 };
 
@@ -82,7 +103,9 @@ export function createApp(dependencies: RuntimeDependencies) {
   const availabilityService = new AvailabilityService(dependencies.database);
   const projectService = new ProjectService(dependencies.database);
   const forumService = new ForumService(dependencies.database);
+  const adminService = new AdminService(dependencies);
   const authentication = requireAuthentication(accountService);
+  const adminAuthentication = requireAdminAuthentication(adminService);
 
   const app = new Hono<{ Variables: AppVariables }>();
   const allowedOrigins = new Set(dependencies.allowedOrigins ?? []);
@@ -100,7 +123,7 @@ export function createApp(dependencies: RuntimeDependencies) {
   app.use('*', cors({
     origin: (origin) => allowedOrigins.has(origin) ? origin : '',
     allowHeaders: ['Content-Type', 'Authorization'],
-    allowMethods: ['GET', 'POST', 'PUT', 'PATCH', 'OPTIONS'],
+    allowMethods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     maxAge: 600,
   }));
   app.use('/v1/*', bodyLimit({
@@ -123,6 +146,53 @@ export function createApp(dependencies: RuntimeDependencies) {
 
   app.get('/health', (context) => context.json({ status: 'ok' }, 200));
   app.get('/openapi.json', (context) => context.json(OPENAPI_DOCUMENT, 200));
+
+  app.post('/v1/admin/auth/login', zValidator('json', AdminLoginSchema), async (context) => {
+    const { username, password } = context.req.valid('json');
+    return context.json(await adminService.login(username, password), 200);
+  });
+  app.post('/v1/reports', authentication, zValidator('json', ContentReportSchema), async (context) => {
+    const report = await adminService.createReport(context.get('userId'), context.req.valid('json'));
+    return context.json({ report }, 201);
+  });
+  app.use('/v1/admin/*', async (context, next) => {
+    if (context.req.path === '/v1/admin/auth/login') return next();
+    return adminAuthentication(context, next);
+  });
+  app.post('/v1/admin/auth/logout', async (context) => {
+    await adminService.logout(context.get('adminToken'));
+    return context.json({ ok: true }, 200);
+  });
+  app.put('/v1/admin/auth/password', zValidator('json', AdminPasswordSchema), async (context) => {
+    const input = context.req.valid('json');
+    await adminService.changePassword(context.get('adminUsername'), input.currentPassword, input.newPassword);
+    return context.json({ ok: true }, 200);
+  });
+  app.get('/v1/admin/overview', async (context) => context.json(await adminService.overview(), 200));
+  app.get('/v1/admin/users', async (context) => context.json({
+    users: await adminService.listUsers(context.req.query('q') ?? ''),
+  }, 200));
+  app.patch('/v1/admin/users/:id/status', zValidator('json', AdminUserStatusSchema), async (context) => {
+    await adminService.setUserStatus(context.get('adminUsername'), context.req.param('id'), context.req.valid('json').status);
+    return context.json({ ok: true }, 200);
+  });
+  app.get('/v1/admin/content', async (context) => context.json({ content: await adminService.listContent() }, 200));
+  app.patch('/v1/admin/content/:type/:id', zValidator('json', AdminContentActionSchema), async (context) => {
+    await adminService.moderateContent(
+      context.get('adminUsername'), context.req.param('type'), context.req.param('id'), context.req.valid('json').action,
+    );
+    return context.json({ ok: true }, 200);
+  });
+  app.get('/v1/admin/reports', async (context) => context.json({ reports: await adminService.listReports() }, 200));
+  app.patch('/v1/admin/reports/:id', zValidator('json', AdminReportStatusSchema), async (context) => {
+    await adminService.updateReport(context.get('adminUsername'), context.req.param('id'), context.req.valid('json').status);
+    return context.json({ ok: true }, 200);
+  });
+  app.get('/v1/admin/tags', async (context) => context.json({ tags: await adminService.listTags() }, 200));
+  app.post('/v1/admin/tags', zValidator('json', AdminTagSchema), async (context) => {
+    return context.json({ tag: await adminService.saveTag(context.get('adminUsername'), context.req.valid('json')) }, 200);
+  });
+  app.get('/v1/admin/audit', async (context) => context.json({ entries: await adminService.listAudit() }, 200));
 
   app.post('/v1/auth/register', zValidator('json', RegisterSchema), async (context) => {
     const result = await accountService.register(context.req.valid('json'));
@@ -162,6 +232,29 @@ export function createApp(dependencies: RuntimeDependencies) {
 
   app.get('/v1/me', async (context) => {
     return context.json({ user: await accountService.getUser(context.get('userId')) }, 200);
+  });
+
+  app.get('/v1/me/academic-settings', async (context) => {
+    const result = await dependencies.database.execute<{ semester_start_date: string | null }>({
+      sql: 'SELECT semester_start_date FROM user_academic_settings WHERE user_id = ?',
+      params: [context.get('userId')],
+    });
+    return context.json({ semesterStartDate: result.rows[0]?.semester_start_date ?? null }, 200);
+  });
+
+  app.put('/v1/me/academic-settings', zValidator('json', AcademicSettingsSchema), async (context) => {
+    const { semesterStartDate } = context.req.valid('json');
+    const date = semesterStartDate ? new Date(`${semesterStartDate}T00:00:00.000Z`) : null;
+    if (date && date.getUTCDay() !== 1) {
+      throw new DomainError('invalid_semester_start_date', '第一周起始日期必须是星期一');
+    }
+    await dependencies.database.execute({
+      sql: `INSERT INTO user_academic_settings (user_id, semester_start_date, updated_at)
+        VALUES (?, ?, ?) ON CONFLICT(user_id) DO UPDATE SET
+        semester_start_date = excluded.semester_start_date, updated_at = excluded.updated_at`,
+      params: [context.get('userId'), semesterStartDate, new Date().toISOString()],
+    });
+    return context.json({ semesterStartDate }, 200);
   });
 
   app.patch('/v1/me', zValidator('json', ProfileSchema), async (context) => {

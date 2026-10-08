@@ -70,6 +70,11 @@ abstract interface class ForumRepository {
   });
   Future<ForumThread> getThread(String postId);
   Future<void> createReply(String postId, String body);
+  Future<void> reportContent({
+    required String targetType,
+    required String targetId,
+    required String reason,
+  });
 }
 
 class DioForumRepository implements ForumRepository {
@@ -135,6 +140,18 @@ class DioForumRepository implements ForumRepository {
     () => _dio.post<Map<String, dynamic>>(
       '/v1/forum/posts/$postId/replies',
       data: {'body': body},
+    ),
+  );
+
+  @override
+  Future<void> reportContent({
+    required String targetType,
+    required String targetId,
+    required String reason,
+  }) async => _void(
+    () => _dio.post<Map<String, dynamic>>(
+      '/v1/reports',
+      data: {'targetType': targetType, 'targetId': targetId, 'reason': reason},
     ),
   );
 

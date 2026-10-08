@@ -70,6 +70,26 @@ class _ProjectsPageState extends State<ProjectsPage> {
     await _run(() => widget.repository.apply(project.id, message), '申请已提交');
   }
 
+  Future<void> _report(StudyProject project) async {
+    final reason = await showDialog<String>(
+      context: context,
+      builder: (_) => const _ProjectReportDialog(),
+    );
+    if (reason == null || !mounted) return;
+    try {
+      await widget.repository.reportProject(project.id, reason);
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text('举报已提交，感谢反馈')));
+      }
+    } on ProjectFailure catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(error.message)));
+      }
+    }
+  }
+
   Future<void> _run(Future<void> Function() action, [String? success]) async {
     try {
       await action();
@@ -196,6 +216,7 @@ class _ProjectsPageState extends State<ProjectsPage> {
                       (project) => _ProjectCard(
                         project: project,
                         onApply: () => _apply(project),
+                        onReport: () => _report(project),
                         onStatus: (status) => _run(
                           () => widget.repository.setProjectStatus(
                             project.id,
@@ -285,10 +306,12 @@ class _ProjectCard extends StatelessWidget {
   const _ProjectCard({
     required this.project,
     required this.onApply,
+    required this.onReport,
     required this.onStatus,
   });
   final StudyProject project;
   final VoidCallback onApply;
+  final VoidCallback onReport;
   final ValueChanged<String> onStatus;
 
   @override
@@ -339,23 +362,75 @@ class _ProjectCard extends StatelessWidget {
                     ],
                     child: const Chip(label: Text('管理项目')),
                   )
-                : project.status != 'recruiting'
-                ? const SizedBox.shrink()
-                : project.myApplicationStatus == null
-                ? FilledButton.tonal(
-                    key: Key('apply-project-${project.id}'),
-                    onPressed: onApply,
-                    child: const Text('申请加入'),
-                  )
-                : Chip(
-                    label: Text(
-                      _applicationStatus(project.myApplicationStatus!),
-                    ),
+                : Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      IconButton(
+                        tooltip: '举报组队帖',
+                        icon: const Icon(Icons.flag_outlined),
+                        onPressed: onReport,
+                      ),
+                      if (project.status == 'recruiting' &&
+                          project.myApplicationStatus == null)
+                        FilledButton.tonal(
+                          key: Key('apply-project-${project.id}'),
+                          onPressed: onApply,
+                          child: const Text('申请加入'),
+                        )
+                      else if (project.myApplicationStatus != null)
+                        Chip(
+                          label: Text(
+                            _applicationStatus(project.myApplicationStatus!),
+                          ),
+                        ),
+                    ],
                   ),
           ),
         ],
       ),
     ),
+  );
+}
+
+class _ProjectReportDialog extends StatefulWidget {
+  const _ProjectReportDialog();
+
+  @override
+  State<_ProjectReportDialog> createState() => _ProjectReportDialogState();
+}
+
+class _ProjectReportDialogState extends State<_ProjectReportDialog> {
+  final _reason = TextEditingController();
+
+  @override
+  void dispose() {
+    _reason.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+    title: const Text('举报组队帖'),
+    content: TextField(
+      controller: _reason,
+      autofocus: true,
+      maxLength: 500,
+      maxLines: 3,
+      decoration: const InputDecoration(labelText: '请说明举报原因（至少 5 个字）'),
+    ),
+    actions: [
+      TextButton(
+        onPressed: () => Navigator.pop(context),
+        child: const Text('取消'),
+      ),
+      FilledButton(
+        onPressed: () {
+          if (_reason.text.trim().length < 5) return;
+          Navigator.pop(context, _reason.text.trim());
+        },
+        child: const Text('提交举报'),
+      ),
+    ],
   );
 }
 

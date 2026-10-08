@@ -104,6 +104,7 @@ abstract interface class ProjectRepository {
   Future<void> apply(String projectId, String message);
   Future<List<ProjectApplication>> listApplications();
   Future<void> respond(String applicationId, String action);
+  Future<void> reportProject(String projectId, String reason);
 }
 
 class DioProjectRepository implements ProjectRepository {
@@ -201,6 +202,14 @@ class DioProjectRepository implements ProjectRepository {
     () => _dio.patch<Map<String, dynamic>>(
       '/v1/project-applications/$applicationId',
       data: {'action': action},
+    ),
+  );
+
+  @override
+  Future<void> reportProject(String projectId, String reason) async => _void(
+    () => _dio.post<Map<String, dynamic>>(
+      '/v1/reports',
+      data: {'targetType': 'project', 'targetId': projectId, 'reason': reason},
     ),
   );
 

@@ -300,6 +300,30 @@ class _ThreadDialogState extends State<_ThreadDialog> {
   String _reply = '';
   bool _saving = false;
 
+  Future<void> _report(String targetType, String targetId) async {
+    final reason = await showDialog<String>(
+      context: context,
+      builder: (_) => const _ReportDialog(),
+    );
+    if (reason == null || !mounted) return;
+    try {
+      await widget.repository.reportContent(
+        targetType: targetType,
+        targetId: targetId,
+        reason: reason,
+      );
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text('举报已提交，感谢反馈')));
+      }
+    } on ForumFailure catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(error.message)));
+      }
+    }
+  }
+
   @override
   void initState() {
     super.initState();
@@ -353,6 +377,15 @@ class _ThreadDialogState extends State<_ThreadDialog> {
               ),
               const SizedBox(height: 14),
               Text(thread.post.body),
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton.icon(
+                  key: const Key('reportForumPostButton'),
+                  onPressed: () => _report('forum_post', thread.post.id),
+                  icon: const Icon(Icons.flag_outlined, size: 18),
+                  label: const Text('举报帖子'),
+                ),
+              ),
               const Divider(height: 28),
               Expanded(
                 child: thread.replies.isEmpty
@@ -363,6 +396,12 @@ class _ThreadDialogState extends State<_ThreadDialog> {
                               (reply) => ListTile(
                                 title: Text(reply.authorName),
                                 subtitle: Text(reply.body),
+                                trailing: IconButton(
+                                  tooltip: '举报回复',
+                                  icon: const Icon(Icons.flag_outlined),
+                                  onPressed: () =>
+                                      _report('forum_reply', reply.id),
+                                ),
                               ),
                             )
                             .toList(),
@@ -389,6 +428,48 @@ class _ThreadDialogState extends State<_ThreadDialog> {
         key: const Key('sendForumReplyButton'),
         onPressed: _saving ? null : _send,
         child: Text(_saving ? '发送中…' : '发送回复'),
+      ),
+    ],
+  );
+}
+
+class _ReportDialog extends StatefulWidget {
+  const _ReportDialog();
+
+  @override
+  State<_ReportDialog> createState() => _ReportDialogState();
+}
+
+class _ReportDialogState extends State<_ReportDialog> {
+  final _controller = TextEditingController();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+    title: const Text('举报内容'),
+    content: TextField(
+      controller: _controller,
+      autofocus: true,
+      maxLength: 500,
+      maxLines: 3,
+      decoration: const InputDecoration(labelText: '请说明举报原因（至少 5 个字）'),
+    ),
+    actions: [
+      TextButton(
+        onPressed: () => Navigator.pop(context),
+        child: const Text('取消'),
+      ),
+      FilledButton(
+        onPressed: () {
+          if (_controller.text.trim().length < 5) return;
+          Navigator.pop(context, _controller.text.trim());
+        },
+        child: const Text('提交举报'),
       ),
     ],
   );

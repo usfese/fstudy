@@ -105,6 +105,8 @@ class Assignment {
 }
 
 abstract interface class AcademicRepository {
+  Future<DateTime?> getSemesterStartDate();
+  Future<void> setSemesterStartDate(DateTime? date);
   Future<List<Course>> listCourses();
   Future<void> createCourse({
     required String name,
@@ -140,6 +142,25 @@ class DioAcademicRepository implements AcademicRepository {
           );
 
   final Dio _dio;
+
+  @override
+  Future<DateTime?> getSemesterStartDate() async {
+    final data = await _request(
+      () => _dio.get<Map<String, dynamic>>('/v1/me/academic-settings'),
+    );
+    final value = data['semesterStartDate'];
+    return value is String ? DateTime.parse(value) : null;
+  }
+
+  @override
+  Future<void> setSemesterStartDate(DateTime? date) async {
+    await _request(
+      () => _dio.put<Map<String, dynamic>>(
+        '/v1/me/academic-settings',
+        data: {'semesterStartDate': date?.toIso8601String().split('T').first},
+      ),
+    );
+  }
 
   @override
   Future<List<Course>> listCourses() async {

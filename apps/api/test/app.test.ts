@@ -3,8 +3,9 @@ import { describe, expect, it } from 'vitest';
 import { NodeSqliteDatabase } from '../src/adapters/node-database.js';
 import { DevelopmentStudentVerifier } from '../src/adapters/student-verifier.js';
 import { createApp } from '../src/http/app.js';
+import { AdminService } from '../src/modules/admin/admin-service.js';
 
-function testApp() {
+async function testApp() {
   const database = new NodeSqliteDatabase(':memory:');
   database.applyMigration(readFileSync(new URL('../migrations/0001_initial.sql', import.meta.url), 'utf8'));
   database.applyMigration(readFileSync(new URL('../migrations/0002_plans.sql', import.meta.url), 'utf8'));
@@ -13,12 +14,18 @@ function testApp() {
   database.applyMigration(readFileSync(new URL('../migrations/0005_auth_throttles.sql', import.meta.url), 'utf8'));
   database.applyMigration(readFileSync(new URL('../migrations/0006_projects.sql', import.meta.url), 'utf8'));
   database.applyMigration(readFileSync(new URL('../migrations/0007_forum.sql', import.meta.url), 'utf8'));
-  return createApp({
+  database.applyMigration(readFileSync(new URL('../migrations/0008_admin.sql', import.meta.url), 'utf8'));
+  database.applyMigration(readFileSync(new URL('../migrations/0009_academic_settings.sql', import.meta.url), 'utf8'));
+  const dependencies = {
     database,
     studentVerifier: new DevelopmentStudentVerifier(),
     studentIdPepper: 'test-pepper',
     allowedOrigins: ['http://127.0.0.1:8080'],
-  });
+    adminBootstrapUsername: 'operator',
+    adminBootstrapPassword: 'a-very-long-test-admin-password',
+  };
+  await new AdminService(dependencies).bootstrap();
+  return createApp(dependencies);
 }
 
 async function register(
@@ -37,12 +44,12 @@ async function register(
     }),
   });
   expect(response.status).toBe(201);
-  return (await response.json()) as { accessToken: string };
+  return (await response.json()) as { accessToken: string; user: { id: string } };
 }
 
 describe('FStudy API', () => {
   it('applies API security headers and restricts browser origins', async () => {
-    const app = testApp();
+    const app = await testApp();
     const allowed = await app.request('/health', {
       headers: { origin: 'http://127.0.0.1:8080' },
     });
@@ -58,7 +65,7 @@ describe('FStudy API', () => {
   });
 
   it('rejects unsupported and oversized request bodies', async () => {
-    const app = testApp();
+    const app = await testApp();
     const unsupported = await app.request('/v1/auth/login', {
       method: 'POST',
       headers: { 'content-type': 'text/plain' },
@@ -81,7 +88,7 @@ describe('FStudy API', () => {
   });
 
   it('rejects malformed bearer tokens before session lookup', async () => {
-    const app = testApp();
+    const app = await testApp();
     const response = await app.request('/v1/me', {
       headers: { authorization: `Bearer ${'x'.repeat(5000)}` },
     });
@@ -92,7 +99,7 @@ describe('FStudy API', () => {
   });
 
   it('registers and authenticates a development student without retaining the school password', async () => {
-    const app = testApp();
+    const app = await testApp();
     const registration = await register(app);
     const profile = await app.request('/v1/me', {
       headers: { authorization: `Bearer ${registration.accessToken}` },
@@ -114,7 +121,7 @@ describe('FStudy API', () => {
   });
 
   it('rate limits repeated login failures and revokes logout sessions', async () => {
-    const app = testApp();
+    const app = await testApp();
     const { accessToken } = await register(app);
     for (let attempt = 0; attempt < 5; attempt += 1) {
       const failed = await app.request('/v1/auth/login', {
@@ -149,7 +156,7 @@ describe('FStudy API', () => {
   });
 
   it('returns the same login error for unknown accounts and wrong passwords', async () => {
-    const app = testApp();
+    const app = await testApp();
     await register(app);
     const attempt = (studentId: string) => app.request('/v1/auth/login', {
       method: 'POST',
@@ -164,7 +171,7 @@ describe('FStudy API', () => {
   });
 
   it('creates and lists a manually entered course', async () => {
-    const app = testApp();
+    const app = await testApp();
     const { accessToken } = await register(app);
     const headers = { authorization: `Bearer ${accessToken}`, 'content-type': 'application/json' };
     const created = await app.request('/v1/courses', {
@@ -186,8 +193,27 @@ describe('FStudy API', () => {
     });
   });
 
+  it('persists a per-user semester start date and requires Monday', async () => {
+    const app = await testApp();
+    const student = await register(app, { studentId: '20260301' });
+    const headers = { authorization: `Bearer ${student.accessToken}`, 'content-type': 'application/json' };
+    const invalid = await app.request('/v1/me/academic-settings', {
+      method: 'PUT', headers, body: JSON.stringify({ semesterStartDate: '2026-03-03' }),
+    });
+    expect(invalid.status).toBe(400);
+
+    const saved = await app.request('/v1/me/academic-settings', {
+      method: 'PUT', headers, body: JSON.stringify({ semesterStartDate: '2026-03-02' }),
+    });
+    expect(saved.status).toBe(200);
+    const loaded = await app.request('/v1/me/academic-settings', {
+      headers: { authorization: `Bearer ${student.accessToken}` },
+    });
+    expect(await loaded.json()).toEqual({ semesterStartDate: '2026-03-02' });
+  });
+
   it('creates, lists, and completes a custom plan with a reminder', async () => {
-    const app = testApp();
+    const app = await testApp();
     const { accessToken } = await register(app);
     const headers = { authorization: `Bearer ${accessToken}`, 'content-type': 'application/json' };
     const created = await app.request('/v1/plans', {
@@ -212,7 +238,7 @@ describe('FStudy API', () => {
   });
 
   it('saves user tags and discovers only opted-in users with public tags', async () => {
-    const app = testApp();
+    const app = await testApp();
     const first = await register(app, { studentId: '20260001', displayName: '甲同学' });
     const second = await register(app, { studentId: '20260002', displayName: '乙同学' });
     const third = await register(app, { studentId: '20260003', displayName: '隐藏同学' });
@@ -283,7 +309,7 @@ describe('FStudy API', () => {
   });
 
   it('sends, accepts, and lists friend requests without duplicates', async () => {
-    const app = testApp();
+    const app = await testApp();
     const first = await register(app, { studentId: '20260001', displayName: '甲同学' });
     const second = await register(app, { studentId: '20260002', displayName: '乙同学' });
     const headers = (token: string) => ({
@@ -354,7 +380,7 @@ describe('FStudy API', () => {
   });
 
   it('computes shared free time and processes an availability invite', async () => {
-    const app = testApp();
+    const app = await testApp();
     const first = await register(app, { studentId: '20260001', displayName: '甲同学' });
     const second = await register(app, { studentId: '20260002', displayName: '乙同学' });
     const headers = (token: string) => ({
@@ -441,7 +467,7 @@ describe('FStudy API', () => {
   });
 
   it('publishes a tagged project and accepts a join application', async () => {
-    const app = testApp();
+    const app = await testApp();
     const owner = await register(app, { studentId: '20260001', displayName: '项目负责人' });
     const applicant = await register(app, { studentId: '20260002', displayName: '申请同学' });
     const headers = (token: string) => ({
@@ -514,7 +540,7 @@ describe('FStudy API', () => {
   });
 
   it('does not overfill a project when applications are accepted concurrently', async () => {
-    const app = testApp();
+    const app = await testApp();
     const owner = await register(app, { studentId: '20260101', displayName: '负责人' });
     const first = await register(app, { studentId: '20260102', displayName: '甲同学' });
     const second = await register(app, { studentId: '20260103', displayName: '乙同学' });
@@ -552,7 +578,7 @@ describe('FStudy API', () => {
   });
 
   it('publishes, filters, and publicly replies to a forum post', async () => {
-    const app = testApp();
+    const app = await testApp();
     const author = await register(app, { studentId: '20260201', displayName: '发帖同学' });
     const respondent = await register(app, { studentId: '20260202', displayName: '回复同学' });
     const headers = (token: string) => ({
@@ -594,5 +620,121 @@ describe('FStudy API', () => {
       post: { id: postId, replyCount: 1 },
       replies: [{ authorName: '回复同学', body: '建议先复习极限。' }],
     });
+  });
+
+  it('keeps admin authentication separate from students and enforces moderation with audit logging', async () => {
+    const app = await testApp();
+    const student = await register(app, { studentId: '20260211' });
+    const studentAdminAttempt = await app.request('/v1/admin/overview', {
+      headers: { authorization: `Bearer ${student.accessToken}` },
+    });
+    expect(studentAdminAttempt.status).toBe(401);
+
+    const login = await app.request('/v1/admin/auth/login', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ username: 'operator', password: 'a-very-long-test-admin-password' }),
+    });
+    expect(login.status).toBe(200);
+    const adminToken = ((await login.json()) as { accessToken: string }).accessToken;
+    const adminHeaders = { authorization: `Bearer ${adminToken}`, 'content-type': 'application/json' };
+    const created = await app.request('/v1/forum/posts', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${student.accessToken}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ category: 'campus', title: '测试帖子', body: '仅管理员可以隐藏这条帖子。' }),
+    });
+    const postId = ((await created.json()) as { post: { id: string } }).post.id;
+    const hidden = await app.request(`/v1/admin/content/forum_post/${postId}`, {
+      method: 'PATCH', headers: adminHeaders, body: JSON.stringify({ action: 'hide' }),
+    });
+    expect(hidden.status).toBe(200);
+    const listing = await app.request('/v1/forum/posts', {
+      headers: { authorization: `Bearer ${student.accessToken}` },
+    });
+    expect(await listing.json()).toMatchObject({ posts: [] });
+
+    const audit = await app.request('/v1/admin/audit', { headers: adminHeaders });
+    expect(await audit.json()).toMatchObject({
+      entries: [{ actor: 'operator', action: 'content.hide', entityType: 'forum_post', entityId: postId }],
+    });
+    const logout = await app.request('/v1/admin/auth/logout', { method: 'POST', headers: adminHeaders });
+    expect(logout.status).toBe(200);
+    const revoked = await app.request('/v1/admin/overview', {
+      headers: { authorization: `Bearer ${adminToken}` },
+    });
+    expect(revoked.status).toBe(401);
+  });
+
+  it('accepts a content report and lets the admin resolve it', async () => {
+    const app = await testApp();
+    const student = await register(app, { studentId: '20260221' });
+    const headers = { authorization: `Bearer ${student.accessToken}`, 'content-type': 'application/json' };
+    const post = await app.request('/v1/forum/posts', {
+      method: 'POST', headers,
+      body: JSON.stringify({ category: 'general', title: '需要审核', body: '举报流程测试正文。' }),
+    });
+    const postId = ((await post.json()) as { post: { id: string } }).post.id;
+    const reported = await app.request('/v1/reports', {
+      method: 'POST', headers,
+      body: JSON.stringify({ targetType: 'forum_post', targetId: postId, reason: '测试举报内容有问题' }),
+    });
+    expect(reported.status).toBe(201);
+    const reportId = ((await reported.json()) as { report: { id: string } }).report.id;
+    const login = await app.request('/v1/admin/auth/login', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ username: 'operator', password: 'a-very-long-test-admin-password' }),
+    });
+    const token = ((await login.json()) as { accessToken: string }).accessToken;
+    const resolved = await app.request(`/v1/admin/reports/${reportId}`, {
+      method: 'PATCH',
+      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ status: 'resolved' }),
+    });
+    expect(resolved.status).toBe(200);
+  });
+
+  it('suspending a user revokes active sessions and removes the user from recommendations', async () => {
+    const app = await testApp();
+    const student = await register(app, { studentId: '20260231', displayName: '待封禁同学' });
+    const adminLogin = await app.request('/v1/admin/auth/login', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ username: 'operator', password: 'a-very-long-test-admin-password' }),
+    });
+    const adminToken = ((await adminLogin.json()) as { accessToken: string }).accessToken;
+    const suspended = await app.request(`/v1/admin/users/${student.user.id}/status`, {
+      method: 'PATCH',
+      headers: { authorization: `Bearer ${adminToken}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ status: 'suspended' }),
+    });
+    expect(suspended.status).toBe(200);
+    const revoked = await app.request('/v1/me', { headers: { authorization: `Bearer ${student.accessToken}` } });
+    expect(revoked.status).toBe(401);
+  });
+
+  it('creates a controlled tag, applies tag updates, and records audit entries', async () => {
+    const app = await testApp();
+    const login = await app.request('/v1/admin/auth/login', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ username: 'operator', password: 'a-very-long-test-admin-password' }),
+    });
+    const token = ((await login.json()) as { accessToken: string }).accessToken;
+    const headers = { authorization: `Bearer ${token}`, 'content-type': 'application/json' };
+    const created = await app.request('/v1/admin/tags', {
+      method: 'POST', headers,
+      body: JSON.stringify({ category: 'field', name: '数据可视化', active: true }),
+    });
+    expect(created.status).toBe(200);
+    const tagId = ((await created.json()) as { tag: { id: string } }).tag.id;
+    const disabled = await app.request('/v1/admin/tags', {
+      method: 'POST', headers,
+      body: JSON.stringify({ id: tagId, category: 'field', name: '数据可视化', active: false }),
+    });
+    expect(disabled.status).toBe(200);
+    const publicTags = await app.request('/v1/tags');
+    expect((await publicTags.json() as { tags: Array<{ id: string }> }).tags.map((tag) => tag.id)).not.toContain(tagId);
+    const audit = await app.request('/v1/admin/audit', { headers });
+    const auditEntries = (await audit.json() as { entries: Array<{ action: string; entityId: string }> }).entries;
+    expect(auditEntries.some((entry) => entry.action === 'tag.update' && entry.entityId === tagId)).toBe(true);
+    expect(auditEntries.some((entry) => entry.action === 'tag.create' && entry.entityId === tagId)).toBe(true);
   });
 });

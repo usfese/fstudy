@@ -28,9 +28,10 @@ export class ForumService {
     const result = await this.database.execute<PostRow>({
       sql: `SELECT fp.id, fp.author_id, u.display_name AS author_name, fp.category,
                    fp.title, fp.body, fp.created_at, fp.updated_at,
-                   (SELECT COUNT(*) FROM forum_replies fr WHERE fr.post_id = fp.id) AS reply_count
+                   (SELECT COUNT(*) FROM forum_replies fr WHERE fr.post_id = fp.id AND fr.moderation_status = 'visible') AS reply_count
             FROM forum_posts fp JOIN users u ON u.id = fp.author_id
-            ${category ? 'WHERE fp.category = ?' : ''}
+            WHERE fp.moderation_status = 'visible'
+            ${category ? 'AND fp.category = ?' : ''}
             ORDER BY fp.updated_at DESC LIMIT 100`,
       params: category ? [category] : [],
     });
@@ -41,9 +42,9 @@ export class ForumService {
     const posts = await this.database.execute<PostRow>({
       sql: `SELECT fp.id, fp.author_id, u.display_name AS author_name, fp.category,
                    fp.title, fp.body, fp.created_at, fp.updated_at,
-                   (SELECT COUNT(*) FROM forum_replies fr WHERE fr.post_id = fp.id) AS reply_count
+                   (SELECT COUNT(*) FROM forum_replies fr WHERE fr.post_id = fp.id AND fr.moderation_status = 'visible') AS reply_count
             FROM forum_posts fp JOIN users u ON u.id = fp.author_id
-            WHERE fp.id = ?`,
+            WHERE fp.id = ? AND fp.moderation_status = 'visible'`,
       params: [postId],
     });
     const post = posts.rows[0];
@@ -51,7 +52,7 @@ export class ForumService {
     const replies = await this.database.execute<ReplyRow>({
       sql: `SELECT fr.id, fr.author_id, u.display_name AS author_name, fr.body, fr.created_at
             FROM forum_replies fr JOIN users u ON u.id = fr.author_id
-            WHERE fr.post_id = ? ORDER BY fr.created_at ASC`,
+            WHERE fr.post_id = ? AND fr.moderation_status = 'visible' ORDER BY fr.created_at ASC`,
       params: [postId],
     });
     return {
@@ -88,7 +89,7 @@ export class ForumService {
 
   async createReply(userId: string, postId: string, body: string) {
     const post = await this.database.execute<{ id: string }>({
-      sql: 'SELECT id FROM forum_posts WHERE id = ?',
+      sql: "SELECT id FROM forum_posts WHERE id = ? AND moderation_status = 'visible'",
       params: [postId],
     });
     if (!post.rows[0]) throw new DomainError('forum_post_not_found', '帖子不存在', 404);

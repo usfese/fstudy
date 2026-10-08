@@ -69,6 +69,12 @@ class HomePage extends StatelessWidget {
                   detail: '校园讨论与组队',
                   onTap: () => context.go('/community'),
                 ),
+                _FeatureCard(
+                  icon: Icons.map_outlined,
+                  title: '校区地图',
+                  detail: '查找校园地点与路线',
+                  onTap: () => context.go('/map'),
+                ),
               ],
             ),
           ],
