@@ -43,7 +43,7 @@ const AUTH_MAX_FAILURES = 5;
 const DUMMY_PASSWORD_CREDENTIAL = {
   hash: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=',
   salt: 'AAAAAAAAAAAAAAAAAAAAAA==',
-  iterations: 210_000,
+  iterations: 100_000,
 };
 
 function futureIso(now: Date, days: number): string {

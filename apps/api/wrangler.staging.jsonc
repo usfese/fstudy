@@ -1,0 +1,20 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "fstudy-api-staging",
+  "main": "src/entrypoints/worker.ts",
+  "compatibility_date": "2026-10-01",
+  "workers_dev": true,
+  "preview_urls": false,
+  "vars": {
+    "AUTH_MODE": "disabled",
+    "ALLOWED_ORIGINS": "https://fstudy-student-staging.pages.dev"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "fstudy-staging",
+      "database_id": "10898bca-bf54-4ba6-aa7c-1970db2ee68a",
+      "migrations_dir": "migrations"
+    }
+  ]
+}

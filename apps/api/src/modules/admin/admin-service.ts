@@ -8,7 +8,7 @@ const MAX_FAILURES = 5;
 const DUMMY_CREDENTIAL = {
   hash: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=',
   salt: 'AAAAAAAAAAAAAAAAAAAAAA==',
-  iterations: 210_000,
+  iterations: 100_000,
 };
 
 type AdminCredential = {

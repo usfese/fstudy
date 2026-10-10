@@ -1,5 +1,7 @@
 const encoder = new TextEncoder();
-const PASSWORD_ITERATIONS = 210_000;
+// Cloudflare Workers WebCrypto currently rejects PBKDF2 iteration counts above 100,000.
+const PASSWORD_ITERATIONS = 100_000;
+const MAX_SUPPORTED_PASSWORD_ITERATIONS = 100_000;
 
 function bytesToBase64(bytes: Uint8Array): string {
   let binary = '';
@@ -55,13 +57,22 @@ export async function verifyPassword(
   password: string,
   credential: { hash: string; salt: string; iterations: number },
 ): Promise<boolean> {
-  const actual = await derivePassword(password, base64ToBytes(credential.salt), credential.iterations);
-  if (actual.length !== credential.hash.length) return false;
-  let difference = 0;
-  for (let index = 0; index < actual.length; index += 1) {
-    difference |= actual.charCodeAt(index) ^ credential.hash.charCodeAt(index);
+  if (!Number.isInteger(credential.iterations)
+    || credential.iterations < 1
+    || credential.iterations > MAX_SUPPORTED_PASSWORD_ITERATIONS) {
+    return false;
   }
-  return difference === 0;
+  try {
+    const actual = await derivePassword(password, base64ToBytes(credential.salt), credential.iterations);
+    if (actual.length !== credential.hash.length) return false;
+    let difference = 0;
+    for (let index = 0; index < actual.length; index += 1) {
+      difference |= actual.charCodeAt(index) ^ credential.hash.charCodeAt(index);
+    }
+    return difference === 0;
+  } catch {
+    return false;
+  }
 }
 
 export function createOpaqueToken(): string {
