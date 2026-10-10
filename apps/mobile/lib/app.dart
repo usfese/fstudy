@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart';
 import 'package:go_router/go_router.dart';
 
 import 'features/academic/academic_repository.dart';
@@ -50,6 +51,7 @@ class FStudyApp extends StatefulWidget {
 }
 
 class _FStudyAppState extends State<FStudyApp> {
+  late final SemanticsHandle _semanticsHandle;
   AuthSession? _session;
   AcademicRepository? _academicRepository;
   PlanRepository? _planRepository;
@@ -63,6 +65,9 @@ class _FStudyAppState extends State<FStudyApp> {
   @override
   void initState() {
     super.initState();
+    // Flutter Web otherwise waits for an assistive technology to request semantics,
+    // leaving browser keyboard-navigation extensions with only the canvas host.
+    _semanticsHandle = WidgetsBinding.instance.ensureSemantics();
     _router = GoRouter(
       routes: [
         GoRoute(
@@ -247,6 +252,7 @@ class _FStudyAppState extends State<FStudyApp> {
   @override
   void dispose() {
     _router.dispose();
+    _semanticsHandle.dispose();
     super.dispose();
   }
 
