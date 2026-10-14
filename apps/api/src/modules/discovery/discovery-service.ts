@@ -20,7 +20,10 @@ type VisibleTagRow = {
 };
 
 export class DiscoveryService {
-  constructor(private readonly database: SqlDatabase) {}
+  constructor(
+    private readonly database: SqlDatabase,
+    private readonly clock: () => Date = () => new Date(),
+  ) {}
 
   async discover(userId: string) {
     const candidates = await this.database.execute<CandidateRow>({
@@ -44,6 +47,7 @@ export class DiscoveryService {
             LEFT JOIN friend_requests r ON r.pair_key = CASE
               WHEN ? < u.id THEN ? || ':' || u.id ELSE u.id || ':' || ? END
             WHERE u.id <> ? AND u.status = 'active' AND u.discoverable = 1
+              AND EXISTS (SELECT 1 FROM student_identities si WHERE si.user_id = u.id AND si.expires_at > ?)
             GROUP BY u.id, u.display_name, u.department_id, u.bio, me.department_id,
                      f.pair_key, r.status, r.sender_id, r.receiver_id
             ORDER BY common_tag_count DESC, same_department DESC, u.display_name
@@ -51,6 +55,7 @@ export class DiscoveryService {
       params: [
         userId, userId, userId, userId, userId, userId,
         userId, userId, userId, userId, userId,
+        this.clock().toISOString(),
       ],
     });
     if (candidates.rows.length === 0) return [];

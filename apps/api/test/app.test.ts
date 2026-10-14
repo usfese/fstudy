@@ -1,12 +1,19 @@
 import { readFileSync } from 'node:fs';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { NodeSqliteDatabase } from '../src/adapters/node-database.js';
-import { DevelopmentStudentVerifier } from '../src/adapters/student-verifier.js';
+import { BuptCasStudentVerifier, DevelopmentStudentVerifier } from '../src/adapters/student-verifier.js';
+import { DomainError } from '../src/core/errors.js';
+import type { StudentVerifier } from '../src/core/types.js';
 import { createApp } from '../src/http/app.js';
 import { AdminService } from '../src/modules/admin/admin-service.js';
 
-async function testApp() {
+async function testApp({ casLoginEnabled = true, schoolPasswordRegistrationEnabled = true, studentVerifier = new DevelopmentStudentVerifier() }: {
+  casLoginEnabled?: boolean;
+  schoolPasswordRegistrationEnabled?: boolean;
+  studentVerifier?: StudentVerifier;
+} = {}) {
   const database = new NodeSqliteDatabase(':memory:');
+  latestDatabase = database;
   database.applyMigration(readFileSync(new URL('../migrations/0001_initial.sql', import.meta.url), 'utf8'));
   database.applyMigration(readFileSync(new URL('../migrations/0002_plans.sql', import.meta.url), 'utf8'));
   database.applyMigration(readFileSync(new URL('../migrations/0003_friends.sql', import.meta.url), 'utf8'));
@@ -16,17 +23,29 @@ async function testApp() {
   database.applyMigration(readFileSync(new URL('../migrations/0007_forum.sql', import.meta.url), 'utf8'));
   database.applyMigration(readFileSync(new URL('../migrations/0008_admin.sql', import.meta.url), 'utf8'));
   database.applyMigration(readFileSync(new URL('../migrations/0009_academic_settings.sql', import.meta.url), 'utf8'));
+  database.applyMigration(readFileSync(new URL('../migrations/0010_notifications.sql', import.meta.url), 'utf8'));
+  database.applyMigration(readFileSync(new URL('../migrations/0011_cas_browser_login.sql', import.meta.url), 'utf8'));
+  database.applyMigration(readFileSync(new URL('../migrations/0012_cas_password_challenges.sql', import.meta.url), 'utf8'));
+  database.applyMigration(readFileSync(new URL('../migrations/0013_cas_challenge_attempts.sql', import.meta.url), 'utf8'));
   const dependencies = {
     database,
-    studentVerifier: new DevelopmentStudentVerifier(),
+    studentVerifier,
     studentIdPepper: 'test-pepper',
     allowedOrigins: ['http://127.0.0.1:8080'],
     adminBootstrapUsername: 'operator',
     adminBootstrapPassword: 'a-very-long-test-admin-password',
+    casCallbackUrl: 'https://api.example.test/v1/auth/cas/callback',
+    casLoginEnabled,
+    schoolPasswordRegistrationEnabled,
+    casStateEncryptionKey: 'test-cas-state-encryption-key-at-least-32-chars',
   };
   await new AdminService(dependencies).bootstrap();
   return createApp(dependencies);
 }
+
+let latestDatabase: NodeSqliteDatabase;
+
+afterEach(() => vi.unstubAllGlobals());
 
 async function register(
   app: ReturnType<typeof createApp>,
@@ -118,6 +137,238 @@ describe('FStudy API', () => {
       }),
     });
     expect(duplicate.status).toBe(409);
+  });
+
+  it('does not count a temporary CAS outage as a bad-password failure', async () => {
+    const database = new NodeSqliteDatabase(':memory:');
+    for (const name of [
+      '0001_initial.sql', '0002_plans.sql', '0003_friends.sql', '0004_availability.sql',
+      '0005_auth_throttles.sql', '0006_projects.sql', '0007_forum.sql', '0008_admin.sql',
+      '0009_academic_settings.sql', '0010_notifications.sql', '0011_cas_browser_login.sql',
+      '0012_cas_password_challenges.sql', '0013_cas_challenge_attempts.sql',
+    ]) {
+      database.applyMigration(readFileSync(new URL(`../migrations/${name}`, import.meta.url), 'utf8'));
+    }
+    const dependencies = {
+      database,
+      studentVerifier: Object.assign(new BuptCasStudentVerifier(), {
+        verify: async () => {
+          throw new DomainError('school_auth_unavailable', '学校认证暂时不可用，请稍后重试', 503);
+        },
+      }),
+      studentIdPepper: 'test-pepper',
+      allowedOrigins: [],
+      schoolPasswordRegistrationEnabled: true,
+      casStateEncryptionKey: 'test-cas-state-encryption-key-at-least-32-chars',
+    };
+    const app = createApp(dependencies);
+    const response = await app.request('/v1/auth/register', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        studentId: '20260088', schoolPassword: 'school-secret',
+        appPassword: 'correct-horse-battery', displayName: '测试同学', departmentId: null,
+      }),
+    });
+    expect(response.status).toBe(503);
+    const throttle = await database.execute({
+      sql: 'SELECT failure_count FROM auth_throttles',
+    });
+    expect(throttle.rows).toHaveLength(0);
+    database.close();
+  });
+
+  it('rejects school-password registration when browser identity auth is enabled', async () => {
+    const database = new NodeSqliteDatabase(':memory:');
+    for (const name of [
+      '0001_initial.sql', '0002_plans.sql', '0003_friends.sql', '0004_availability.sql',
+      '0005_auth_throttles.sql', '0006_projects.sql', '0007_forum.sql', '0008_admin.sql',
+      '0009_academic_settings.sql', '0010_notifications.sql', '0011_cas_browser_login.sql',
+      '0012_cas_password_challenges.sql', '0013_cas_challenge_attempts.sql',
+    ]) {
+      database.applyMigration(readFileSync(new URL(`../migrations/${name}`, import.meta.url), 'utf8'));
+    }
+    const app = createApp({
+      database,
+      studentVerifier: new DevelopmentStudentVerifier(),
+      studentIdPepper: 'test-pepper',
+      allowedOrigins: [],
+      schoolPasswordRegistrationEnabled: false,
+      casLoginEnabled: false,
+      casStateEncryptionKey: 'test-cas-state-encryption-key-at-least-32-chars',
+    });
+    const response = await app.request('/v1/auth/register', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        studentId: '20260009', schoolPassword: 'do-not-accept',
+        appPassword: 'correct-horse-battery', displayName: '测试', departmentId: null,
+      }),
+    });
+    expect(response.status).toBe(403);
+    expect(await response.json()).toMatchObject({
+      error: { code: 'browser_identity_auth_required' },
+    });
+    database.close();
+  });
+
+  it('refuses CAS browser login when the feature flag is off', async () => {
+    const app = await testApp({ casLoginEnabled: false });
+    const response = await app.request('/v1/auth/cas/start', {
+      method: 'POST',
+      headers: { origin: 'http://127.0.0.1:8080', 'content-type': 'application/json' },
+      body: '{}',
+    });
+    expect(response.status).toBe(503);
+    expect(await response.json()).toMatchObject({
+      error: { code: 'cas_login_disabled' },
+    });
+  });
+
+  it('requires captcha rather than accepting an unchallenged CAS password submission', async () => {
+    const verifier = new BuptCasStudentVerifier();
+    vi.spyOn(verifier, 'verify').mockRejectedValue(
+      new DomainError('school_auth_captcha_required', '学校认证要求验证码', 503),
+    );
+    const app = await testApp({ studentVerifier: verifier, schoolPasswordRegistrationEnabled: true });
+    const response = await app.request('/v1/auth/register', {
+      method: 'POST',
+      headers: { origin: 'http://127.0.0.1:8080', 'content-type': 'application/json' },
+      body: JSON.stringify({
+        studentId: '20260055', schoolPassword: 'school-secret',
+        appPassword: 'correct-horse-battery', displayName: 'test', departmentId: null,
+      }),
+    });
+    expect(response.status).toBe(503);
+    expect(await response.json()).toMatchObject({
+      error: { code: 'school_auth_captcha_required' },
+    });
+  });
+
+  it('stores only encrypted CAS challenge state, rate-limits issuance, and consumes a challenge once', async () => {
+    const verifier = new BuptCasStudentVerifier();
+    vi.spyOn(verifier, 'beginPasswordChallenge').mockResolvedValue({
+      state: { cookie: 'secret-cookie', execution: 'exec-secret', captchaId: 'captcha-1' },
+      captchaImage: 'data:image/png;base64,AQID',
+    });
+    vi.spyOn(verifier, 'verifyPasswordChallenge').mockImplementation(async (input) => ({
+      studentId: input.studentId,
+    }));
+    const app = await testApp({ studentVerifier: verifier, schoolPasswordRegistrationEnabled: true });
+    const database = latestDatabase;
+    const originalFetch = globalThis.fetch;
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input).includes('/authserver/captcha')) {
+        return new Response(new Uint8Array([1, 2, 3]), {
+          status: 200,
+          headers: { 'content-type': 'image/png' },
+        });
+      }
+      return new Response('<html><input name="execution" value="exec-1">config.captcha { id: \'cid-1\' }</html>', {
+        status: 200,
+        headers: { 'set-cookie': 'SESSION=secret-cookie; Path=/; Secure' },
+      });
+    }));
+    const headers = { origin: 'http://127.0.0.1:8080', 'content-type': 'application/json' };
+    const challenge = await app.request('/v1/auth/cas/password/challenge', {
+      method: 'POST', headers, body: JSON.stringify({ studentId: '20260077' }),
+    });
+    expect(challenge.status).toBe(200);
+    const body = await challenge.json() as { challengeId: string; captchaImage: string };
+    expect(body.captchaImage).toContain('data:image/png;base64,');
+    const stored = await latestDatabase.execute<{ encrypted_state: string }>({
+      sql: 'SELECT encrypted_state FROM cas_password_challenges',
+    });
+    expect(stored.rows[0]!.encrypted_state).not.toContain('secret-cookie');
+    expect(stored.rows[0]!.encrypted_state).not.toContain('exec-1');
+    for (let index = 0; index < 4; index += 1) {
+      const issued = await app.request('/v1/auth/cas/password/challenge', {
+        method: 'POST', headers, body: JSON.stringify({ studentId: '20260077' }),
+      });
+      expect(issued.status).toBe(200);
+    }
+    const rateLimited = await app.request('/v1/auth/cas/password/challenge', {
+      method: 'POST', headers, body: JSON.stringify({ studentId: '20260077' }),
+    });
+    expect(rateLimited.status).toBe(429);
+
+    vi.spyOn(verifier, 'verifyPasswordChallenge').mockImplementationOnce(async (input) => ({
+      studentId: input.studentId,
+    }));
+    const verified = await app.request('/v1/auth/cas/password/verify', {
+      method: 'POST', headers,
+      body: JSON.stringify({
+        challengeId: body.challengeId, studentId: '20260077', schoolPassword: 'one-time-secret',
+        captcha: '1234', displayName: '验证码测试', appPassword: 'correct-horse-battery',
+      }),
+    });
+    expect(verified.status).toBe(201);
+    const replay = await app.request('/v1/auth/cas/password/verify', {
+      method: 'POST', headers,
+      body: JSON.stringify({
+        challengeId: body.challengeId, studentId: '20260077', schoolPassword: 'one-time-secret',
+        captcha: '1234', displayName: '验证码测试', appPassword: 'correct-horse-battery',
+      }),
+    });
+    expect(replay.status).toBe(400);
+    vi.stubGlobal('fetch', originalFetch);
+  });
+
+  it('completes browser CAS with a state-bound, one-time code without receiving the school password', async () => {
+    const app = await testApp();
+    const calls: string[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      calls.push(url);
+      expect(url).toMatch(/^https:\/\/auth\.bupt\.edu\.cn\/authserver\/serviceValidate/);
+      const parsed = new URL(url);
+      expect(parsed.searchParams.get('service')).toContain('state=');
+      return new Response(`<?xml version="1.0"?><cas:serviceResponse xmlns:cas="http://www.yale.edu/tp/cas"><cas:authenticationSuccess><cas:user>20261234</cas:user><cas:attributes><cas:uid>20261234</cas:uid></cas:attributes></cas:authenticationSuccess></cas:serviceResponse>`, { status: 200 });
+    }));
+
+    const started = await app.request('/v1/auth/cas/start', {
+      method: 'POST',
+      headers: { origin: 'http://127.0.0.1:8080', 'content-type': 'application/json' },
+      body: '{}',
+    });
+    expect(started.status).toBe(200);
+    const authorizationUrl = new URL(((await started.json()) as { authorizationUrl: string }).authorizationUrl);
+    const service = new URL(authorizationUrl.searchParams.get('service')!);
+    const state = service.searchParams.get('state')!;
+
+    const callback = await app.request(`/v1/auth/cas/callback?ticket=ST-mock-ticket&state=${encodeURIComponent(state)}`);
+    expect(callback.status).toBe(303);
+    const returned = new URL(callback.headers.get('location')!);
+    const callbackFragment = new URLSearchParams(returned.hash.slice(1));
+    const code = callbackFragment.get('cas_code')!;
+    expect(callbackFragment.get('cas_state')).toBe(state);
+    expect(calls).toHaveLength(1);
+
+    const completed = await app.request('/v1/auth/cas/complete', {
+      method: 'POST',
+      headers: { origin: 'http://127.0.0.1:8080', 'content-type': 'application/json' },
+      body: JSON.stringify({
+        code,
+        state,
+        displayName: 'CAS 测试同学',
+        appPassword: 'correct-horse-battery',
+        departmentId: null,
+      }),
+    });
+    expect(completed.status).toBe(201);
+    const session = await completed.json() as { accessToken: string; user: { displayName: string } };
+    expect(session.user.displayName).toBe('CAS 测试同学');
+    const profile = await app.request('/v1/me', {
+      headers: { authorization: `Bearer ${session.accessToken}` },
+    });
+    expect(profile.status).toBe(200);
+
+    const replay = await app.request('/v1/auth/cas/complete', {
+      method: 'POST',
+      headers: { origin: 'http://127.0.0.1:8080', 'content-type': 'application/json' },
+      body: JSON.stringify({ code, state, displayName: 'CAS 测试同学', appPassword: 'correct-horse-battery' }),
+    });
+    expect(replay.status).toBe(400);
   });
 
   it('rate limits repeated login failures and revokes logout sessions', async () => {
@@ -339,6 +590,40 @@ describe('FStudy API', () => {
       body: JSON.stringify({ targetUserId: target.id }),
     });
     expect(sent.status).toBe(201);
+    const notificationHeaders = headers(second.accessToken);
+    const notificationList = await app.request('/v1/notifications', {
+      headers: notificationHeaders,
+    });
+    const notificationBody = await notificationList.json() as {
+      unreadCount: number;
+      notifications: Array<{ id: string; kind: string; title: string; body: string; readAt: string | null }>;
+    };
+    expect(notificationBody).toMatchObject({
+      unreadCount: 1,
+      notifications: [{
+        kind: 'friend_request',
+        title: '收到好友申请',
+        body: '甲同学向你发送了好友申请',
+        readAt: null,
+      }],
+    });
+    const notificationId = notificationBody.notifications[0]!.id;
+    const wrongOwnerMark = await app.request('/v1/notifications/read', {
+      method: 'POST',
+      headers: headers(first.accessToken),
+      body: JSON.stringify({ id: notificationId }),
+    });
+    expect(await wrongOwnerMark.json()).toMatchObject({ unreadCount: 0 });
+    expect((await app.request('/v1/notifications', {
+      headers: notificationHeaders,
+    }).then((response) => response.json()))).toMatchObject({ unreadCount: 1 });
+    const marked = await app.request('/v1/notifications/read', {
+      method: 'POST',
+      headers: notificationHeaders,
+      body: JSON.stringify({ id: notificationId }),
+    });
+    expect(await marked.json()).toMatchObject({ unreadCount: 0 });
+
     const duplicate = await app.request('/v1/friend-requests', {
       method: 'POST',
       headers: headers(first.accessToken),
@@ -435,6 +720,7 @@ describe('FStudy API', () => {
         { startMinute: 570, endMinute: 600 },
         { startMinute: 660, endMinute: 1320 },
       ],
+      friendBlocks: [],
     });
 
     const invited = await app.request('/v1/availability-invites', {
@@ -730,11 +1016,118 @@ describe('FStudy API', () => {
       body: JSON.stringify({ id: tagId, category: 'field', name: '数据可视化', active: false }),
     });
     expect(disabled.status).toBe(200);
-    const publicTags = await app.request('/v1/tags');
+    const student = await register(app);
+    const publicTags = await app.request('/v1/tags', { headers: { authorization: `Bearer ${student.accessToken}` } });
     expect((await publicTags.json() as { tags: Array<{ id: string }> }).tags.map((tag) => tag.id)).not.toContain(tagId);
     const audit = await app.request('/v1/admin/audit', { headers });
     const auditEntries = (await audit.json() as { entries: Array<{ action: string; entityId: string }> }).entries;
     expect(auditEntries.some((entry) => entry.action === 'tag.update' && entry.entityId === tagId)).toBe(true);
     expect(auditEntries.some((entry) => entry.action === 'tag.create' && entry.entityId === tagId)).toBe(true);
+  });
+  it('reveals a friend busy blocks only as far as their schedule visibility allows', async () => {
+    const app = await testApp();
+    const first = await register(app, { studentId: '20260001', displayName: '甲同学' });
+    const second = await register(app, { studentId: '20260002', displayName: '乙同学' });
+    const headers = (token: string) => ({ authorization: `Bearer ${token}`, 'content-type': 'application/json' });
+    await app.request('/v1/me', {
+      method: 'PATCH', headers: headers(second.accessToken),
+      body: JSON.stringify({ displayName: '乙同学', bio: '', departmentId: 'computer', discoverable: true, scheduleVisibility: 'busy_only' }),
+    });
+    const friendId = second.user.id;
+    const sent = await app.request('/v1/friend-requests', {
+      method: 'POST', headers: headers(first.accessToken), body: JSON.stringify({ targetUserId: friendId }),
+    });
+    const requestId = ((await sent.json()) as { request: { id: string } }).request.id;
+    await app.request(`/v1/friend-requests/${requestId}`, {
+      method: 'PATCH', headers: headers(second.accessToken), body: JSON.stringify({ action: 'accept' }),
+    });
+    await app.request('/v1/courses', {
+      method: 'POST', headers: headers(second.accessToken),
+      body: JSON.stringify({
+        name: '线性代数', teacher: null, color: '#3366FF',
+        meetings: [{ weekday: 1, startMinute: 600, endMinute: 660, startWeek: 1, endWeek: 16, weekParity: 'all', campus: null, building: null, room: null }],
+      }),
+    });
+    await app.request('/v1/plans', {
+      method: 'POST', headers: headers(second.accessToken),
+      body: JSON.stringify({
+        title: '社团例会', notes: '只给自己看的备注', startsAt: '2026-10-12T13:00:00.000Z',
+        endsAt: '2026-10-12T14:00:00.000Z', reminderMinutes: null,
+      }),
+    });
+    const query = `/v1/availability?friendId=${friendId}&date=2026-10-12&weekNumber=3&dayStartMinute=480&dayEndMinute=1320&timezoneOffsetMinutes=0`;
+    const setVisibility = (value: string) => app.request('/v1/me', {
+      method: 'PATCH', headers: headers(second.accessToken),
+      body: JSON.stringify({ displayName: '乙同学', bio: '', departmentId: 'computer', discoverable: true, scheduleVisibility: value }),
+    });
+
+    expect(await (await app.request(query, { headers: headers(first.accessToken) })).json()).toMatchObject({ friendBlocks: [] });
+
+    await setVisibility('course_name');
+    const courseName = await (await app.request(query, { headers: headers(first.accessToken) })).json() as {
+      friendBlocks: Array<{ title: string | null; kind: string }>; freeSlots: unknown; };
+    expect(courseName.friendBlocks).toEqual([
+      { startMinute: 600, endMinute: 660, kind: 'course', title: '线性代数' },
+      { startMinute: 780, endMinute: 840, kind: 'plan', title: null },
+    ]);
+    expect(JSON.stringify(courseName)).not.toContain('社团例会');
+    expect(JSON.stringify(courseName)).not.toContain('只给自己看的备注');
+
+    await setVisibility('full');
+    const full = await (await app.request(query, { headers: headers(first.accessToken) })).json() as { friendBlocks: unknown };
+    expect(JSON.stringify(full)).toContain('社团例会');
+    expect(JSON.stringify(full)).not.toContain('只给自己看的备注');
+  });
+
+  it('refuses expired identities at login, revokes their sessions, and hides them from discovery', async () => {
+    const app = await testApp();
+    const student = await register(app, { studentId: '20260001', displayName: '过期同学' });
+    const viewer = await register(app, { studentId: '20260002', displayName: '查看者' });
+    await app.request('/v1/me', {
+      method: 'PATCH', headers: { authorization: `Bearer ${student.accessToken}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ displayName: '过期同学', bio: '', departmentId: 'computer', discoverable: true, scheduleVisibility: 'busy_only' }),
+    });
+    await latestDatabase.execute({ sql: 'UPDATE student_identities SET expires_at = ? WHERE user_id = ?', params: ['2020-01-01T00:00:00.000Z', student.user.id] });
+
+    const profile = await app.request('/v1/me', { headers: { authorization: `Bearer ${student.accessToken}` } });
+    expect(profile.status).toBe(401);
+    const login = await app.request('/v1/auth/login', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ studentId: '20260001', appPassword: 'correct-horse-battery' }),
+    });
+    expect(login.status).toBe(403);
+    expect(await login.json()).toMatchObject({ error: { code: 'identity_reverification_required' } });
+    const discovered = await app.request('/v1/discover', { headers: { authorization: `Bearer ${viewer.accessToken}` } });
+    expect(((await discovered.json()) as { users: unknown[] }).users).toEqual([]);
+  });
+
+  it('renews an expired identity through a fresh browser CAS verification', async () => {
+    const app = await testApp();
+    const original = await register(app, { studentId: '20261234', displayName: '续期同学' });
+    await latestDatabase.execute({ sql: 'UPDATE student_identities SET expires_at = ?', params: ['2020-01-01T00:00:00.000Z'] });
+    expect((await app.request('/v1/me', { headers: { authorization: `Bearer ${original.accessToken}` } })).status).toBe(401);
+
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(
+      '<?xml version="1.0"?><cas:serviceResponse xmlns:cas="http://www.yale.edu/tp/cas"><cas:authenticationSuccess><cas:user>20261234</cas:user></cas:authenticationSuccess></cas:serviceResponse>',
+      { status: 200 },
+    )));
+    const origin = { origin: 'http://127.0.0.1:8080', 'content-type': 'application/json' };
+    const started = await app.request('/v1/auth/cas/start', { method: 'POST', headers: origin, body: '{}' });
+    const state = new URL(new URL(((await started.json()) as { authorizationUrl: string }).authorizationUrl)
+      .searchParams.get('service')!).searchParams.get('state')!;
+    const callback = await app.request(`/v1/auth/cas/callback?ticket=ST-renew&state=${encodeURIComponent(state)}`);
+    const code = new URLSearchParams(new URL(callback.headers.get('location')!).hash.slice(1)).get('cas_code')!;
+    const renewed = await app.request('/v1/auth/cas/complete', {
+      method: 'POST', headers: origin, body: JSON.stringify({ code, state, departmentId: null }),
+    });
+    expect(renewed.status).toBe(201);
+    const session = await renewed.json() as { accessToken: string };
+    expect((await app.request('/v1/me', { headers: { authorization: `Bearer ${session.accessToken}` } })).status).toBe(200);
+    const relogin = await app.request('/v1/auth/login', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ studentId: '20261234', appPassword: 'correct-horse-battery' }),
+    });
+    expect(relogin.status).toBe(200);
+    vi.unstubAllGlobals();
   });
 });

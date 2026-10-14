@@ -10,6 +10,8 @@
 
 ## 本地启动
 
+项目知识库位于 `docs/knowledge/`，修改代码前后请参考并同步更新（见 `AGENT.md` 的 Knowledge Base Protocol）。运行 `pnpm knowledge:check` 校验。
+
 需要 Node.js 22+ 与 pnpm。
 
 ```bash
@@ -46,6 +48,12 @@ curl -X POST http://localhost:8787/v1/auth/register \
 
 生产环境默认拒绝注册；真实 BUPT 验证尚未启用，避免在未完成安全和网络验证前接触真实统一认证密码。
 
+### BUPT CAS-only 验证（实验性）
+
+API 提供实验性的 `AUTH_MODE=bupt-cas` 验证器，只使用 `auth.bupt.edu.cn` 的 CAS 登录与 `serviceValidate`，不请求 ucloud token/角色接口。学校密码只在注册请求内存中用于这次验证，不写日志、不保存；学号仍只保存 HMAC，姓名不落库。验证码暂不支持，CAS 要求验证码时会安全失败并提示稍后处理。部署到公网前仍需确认学校允许此类集成，并完成真实网络、隐私告知和安全评审。此模式不得用于生产开放注册。
+
+第三方库参考：[byrdocs/bupt-auth](https://github.com/byrdocs/bupt-auth)，其 MIT 许可；FStudy 没有引入该库代码，CAS-only 流程由本仓库适配器独立实现。第三方库的 ucloud token/角色流程不使用。
+
 ## 管理控制台（本地开发）
 
 管理台是独立的静态 Web 应用，位于 `apps/admin`，不会复用学生端登录会话。首次启动 API 时，可通过环境变量创建首个管理员；密码至少 14 位，服务端只保存 PBKDF2 哈希。管理员首次创建后，更改环境变量不会覆盖已有账号，可在管理台内修改密码。
@@ -70,22 +78,18 @@ python3 -m http.server 8081 --bind 127.0.0.1 --directory apps/admin
 
 ## 当前接口
 
-- `POST /v1/auth/register`、`POST /v1/auth/login`、`POST /v1/auth/logout`
-- `GET/PATCH /v1/me`、`PUT /v1/me/tags`
-- `GET /v1/tags`
-- `GET/POST /v1/courses`
-- `GET/PUT /v1/me/academic-settings`（当前用户的学期第一周起始日期）
-- `GET/POST /v1/assignments`
-- `PATCH /v1/assignments/:id/completion`
-- `GET/POST /v1/projects`、`PATCH /v1/projects/:id/status`
-- `POST /v1/projects/:id/applications`
-- `GET/PATCH /v1/project-applications[/:id]`
-- `GET/POST /v1/forum/posts`
-- `GET /v1/forum/posts/:id`、`POST /v1/forum/posts/:id/replies`
-- `POST /v1/reports`
-- 独立管理员 API：`/v1/admin/auth/*`、`/v1/admin/overview`、`/v1/admin/users`、`/v1/admin/content`、`/v1/admin/reports`、`/v1/admin/tags`、`/v1/admin/audit`
+完整的请求/响应定义见 [docs/knowledge/apps/api/src/http/README.md](docs/knowledge/apps/api/src/http/README.md)。主要分组如下：
 
-除注册、登录、健康检查和 OpenAPI 文档外，业务接口使用 `Authorization: Bearer <token>`。API 默认对敏感响应设置 `Cache-Control: no-store`，并仅允许 `ALLOWED_ORIGINS` 中列出的浏览器来源。
+- 认证：`POST /v1/auth/register`、`/login`、`/logout`；北邮 CAS：`/v1/auth/cas/*`、`/v1/auth/cas/password/*`（预发实验，默认关闭）
+- 个人资料与设置：`GET/PATCH /v1/me`、`GET/PUT /v1/me/academic-settings`、`GET/PUT /v1/me/tags`、`GET /v1/tags`（需要登录）
+- 课表与学习：`GET/POST /v1/courses`、`GET/POST /v1/assignments`、`PATCH /v1/assignments/:id/completion`、`GET/POST /v1/plans`、`PATCH /v1/plans/:id/completion`
+- 社交：`GET /v1/discover`、`GET /v1/friends`、`POST /v1/friend-requests`、`PATCH /v1/friend-requests/:id`、`GET /v1/availability`、`GET/POST /v1/availability-invites`、`PATCH /v1/availability-invites/:id`
+- 组队：`GET/POST /v1/projects`、`PATCH /v1/projects/:id/status`、`POST /v1/projects/:id/applications`、`GET/PATCH /v1/project-applications[/:id]`
+- 讨论区：`GET/POST /v1/forum/posts`、`GET /v1/forum/posts/:id`、`POST /v1/forum/posts/:id/replies`
+- 通知与举报：`GET /v1/notifications`、`POST /v1/notifications/read`、`POST /v1/reports`
+- 独立管理员 API：`/v1/admin/*`（登录、总览、用户、内容、举报、标签、审计）
+
+除注册、登录、CAS 入口、管理员登录、健康检查和 OpenAPI 文档外，业务接口使用 `Authorization: Bearer <token>`。API 默认对敏感响应设置 `Cache-Control: no-store`，并仅允许 `ALLOWED_ORIGINS` 中列出的浏览器来源。
 
 ## Flutter
 
@@ -93,4 +97,4 @@ Flutter 客户端当前支持 Web/PWA 与 Android 工程结构；本阶段以 We
 
 GitHub Actions 在推送到 `main`、Pull Request 和手动触发时执行 API 类型检查/测试/构建、后台 JavaScript 语法检查，以及 Flutter 格式检查、分析、行为测试和 Web Release 构建。Android 打包暂不进入 CI，遵循当前 Web 优先迭代约束。
 
-本地 SQLite 开发入口会自动应用 `0001`–`0009` 迁移；Cloudflare D1 生产部署需显式执行 `pnpm db:migrate:remote`。
+本地 SQLite 开发入口会自动应用 `0001`–`0013` 迁移（远程预发历史与仓库文件的一致性见 `docs/knowledge/apps/api/migrations/README.md`）；Cloudflare D1 生产部署需显式执行 `pnpm db:migrate:remote`。

@@ -1,6 +1,7 @@
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 const _configuredApiUrl = String.fromEnvironment('API_BASE_URL');
 
@@ -34,10 +35,17 @@ class AuthSession {
   final AuthUser user;
 }
 
+class CasPasswordChallenge {
+  const CasPasswordChallenge({required this.id, required this.captchaImage});
+  final String id;
+  final String? captchaImage;
+}
+
 class AuthFailure implements Exception {
-  const AuthFailure(this.message);
+  const AuthFailure(this.message, {this.code});
 
   final String message;
+  final String? code;
 
   @override
   String toString() => message;
@@ -57,6 +65,29 @@ abstract interface class AuthRepository {
     required String appPassword,
     required String displayName,
     required String? departmentId,
+  });
+
+  Future<void> startBrowserCas();
+  Future<AuthSession> completeBrowserCas({
+    required String code,
+    required String state,
+    String? displayName,
+    String? appPassword,
+    String? departmentId,
+  });
+
+  Future<CasPasswordChallenge> beginCasPasswordChallenge(String studentId);
+  Future<CasPasswordChallenge> refreshCasPasswordChallenge({
+    required String challengeId,
+    required String studentId,
+  });
+  Future<AuthSession> verifyCasPasswordChallenge({
+    required String challengeId,
+    required String studentId,
+    required String schoolPassword,
+    required String? captcha,
+    required String displayName,
+    required String appPassword,
   });
 
   Future<void> logout();
@@ -125,6 +156,111 @@ class DioAuthRepository implements AuthRepository {
     'departmentId': departmentId,
   });
 
+  @override
+  Future<void> startBrowserCas() async {
+    try {
+      final response = await _dio.post<Map<String, dynamic>>(
+        '/v1/auth/cas/start',
+      );
+      final url = Uri.parse(response.data!['authorizationUrl'] as String);
+      final opened = await launchUrl(
+        url,
+        mode: kIsWeb
+            ? LaunchMode.platformDefault
+            : LaunchMode.externalApplication,
+        webOnlyWindowName: '_self',
+      );
+      if (!opened) throw const AuthFailure('无法打开北邮统一身份认证页面');
+    } on AuthFailure {
+      rethrow;
+    } on DioException catch (error) {
+      final data = error.response?.data;
+      if (data is Map && data['error'] is Map) {
+        final errorBody = data['error'] as Map;
+        final message = errorBody['message'];
+        if (message is String) {
+          throw AuthFailure(message, code: errorBody['code'] as String?);
+        }
+      }
+      throw const AuthFailure('无法连接认证服务，请稍后重试');
+    }
+  }
+
+  @override
+  Future<AuthSession> completeBrowserCas({
+    required String code,
+    required String state,
+    String? displayName,
+    String? appPassword,
+    String? departmentId,
+  }) => _authenticate('/v1/auth/cas/complete', {
+    'code': code,
+    'state': state,
+    'displayName': ?displayName,
+    'appPassword': ?appPassword,
+    'departmentId': departmentId,
+  });
+
+  @override
+  Future<CasPasswordChallenge> beginCasPasswordChallenge(String studentId) =>
+      _requestCasChallenge('/v1/auth/cas/password/challenge', {
+        'studentId': studentId,
+      });
+
+  @override
+  Future<CasPasswordChallenge> refreshCasPasswordChallenge({
+    required String challengeId,
+    required String studentId,
+  }) => _requestCasChallenge('/v1/auth/cas/password/refresh', {
+    'challengeId': challengeId,
+    'studentId': studentId,
+  });
+
+  Future<CasPasswordChallenge> _requestCasChallenge(
+    String path,
+    Map<String, dynamic> data,
+  ) async {
+    try {
+      final response = await _dio.post<Map<String, dynamic>>(path, data: data);
+      return CasPasswordChallenge(
+        id: response.data!['challengeId'] as String,
+        captchaImage: response.data!['captchaImage'] as String?,
+      );
+    } on DioException catch (error) {
+      throw _authFailure(error);
+    }
+  }
+
+  @override
+  Future<AuthSession> verifyCasPasswordChallenge({
+    required String challengeId,
+    required String studentId,
+    required String schoolPassword,
+    required String? captcha,
+    required String displayName,
+    required String appPassword,
+  }) => _authenticate('/v1/auth/cas/password/verify', {
+    'challengeId': challengeId,
+    'studentId': studentId,
+    'schoolPassword': schoolPassword,
+    'captcha': ?captcha,
+    'displayName': displayName,
+    'appPassword': appPassword,
+    'departmentId': null,
+  });
+
+  AuthFailure _authFailure(DioException error) {
+    final data = error.response?.data;
+    if (data is Map && data['error'] is Map) {
+      final errorBody = data['error'] as Map;
+      final message = errorBody['message'];
+      if (message is String) {
+        return AuthFailure(message, code: errorBody['code'] as String?);
+      }
+    }
+    return const AuthFailure('无法连接认证服务，请稍后重试');
+  }
+
   Future<AuthSession> _authenticate(
     String path,
     Map<String, dynamic> body,
@@ -142,7 +278,12 @@ class DioAuthRepository implements AuthRepository {
       final data = error.response?.data;
       if (data is Map && data['error'] is Map) {
         final message = (data['error'] as Map)['message'];
-        if (message is String) throw AuthFailure(message);
+        if (message is String) {
+          throw AuthFailure(
+            message,
+            code: (data['error'] as Map)['code'] as String?,
+          );
+        }
       }
       throw const AuthFailure('无法连接服务器，请确认本地 API 已启动');
     }

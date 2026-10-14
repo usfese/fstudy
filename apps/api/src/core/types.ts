@@ -39,4 +39,8 @@ export type RuntimeDependencies = {
   allowedOrigins?: string[];
   adminBootstrapUsername?: string | undefined;
   adminBootstrapPassword?: string | undefined;
+  casCallbackUrl?: string | undefined;
+  casLoginEnabled?: boolean;
+  schoolPasswordRegistrationEnabled?: boolean;
+  casStateEncryptionKey?: string | undefined;
 };

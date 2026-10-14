@@ -31,9 +31,7 @@ class _CoursesPageState extends State<CoursesPage> {
   Future<DateTime?> _loadSemesterStartDate() async {
     final date = await widget.repository.getSemesterStartDate();
     if (mounted && date != null) {
-      setState(
-        () => _selectedWeek = _teachingWeek(date, DateTime.now()).clamp(1, 30),
-      );
+      _selectedWeek = _teachingWeek(date, DateTime.now()).clamp(1, 30);
     }
     return date;
   }

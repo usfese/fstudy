@@ -16,6 +16,8 @@ import { AvailabilityService } from '../modules/availability/availability-servic
 import { ProjectService } from '../modules/projects/project-service.js';
 import { ForumService } from '../modules/forum/forum-service.js';
 import { AdminService } from '../modules/admin/admin-service.js';
+import { NotificationService } from '../modules/notifications/notification-service.js';
+import { CasLoginService } from '../modules/identity/cas-login-service.js';
 import { requireAdminAuthentication, requireAuthentication, type AppVariables } from './auth.js';
 import {
   AssignmentSchema,
@@ -26,6 +28,11 @@ import {
   AdminReportStatusSchema,
   AdminTagSchema,
   AdminUserStatusSchema,
+  NotificationReadSchema,
+  CasCompleteSchema,
+  CasPasswordChallengeSchema,
+  CasPasswordVerificationSchema,
+  CasPasswordRefreshSchema,
   AvailabilityInviteActionSchema,
   AvailabilityInviteSchema,
   AvailabilityQuerySchema,
@@ -56,16 +63,20 @@ const OPENAPI_DOCUMENT = {
     '/v1/auth/login': { post: { summary: '使用学号和本系统密码登录' } },
     '/v1/auth/logout': { post: { summary: '撤销当前会话并退出登录' } },
     '/v1/me': { get: { summary: '读取个人资料' }, patch: { summary: '更新个人资料和隐私偏好' } },
-    '/v1/tags': { get: { summary: '读取受控标签' } },
+    '/v1/tags': { get: { summary: '读取受控标签（需要登录）' } },
     '/v1/me/tags': { get: { summary: '读取当前用户标签' }, put: { summary: '替换当前用户标签' } },
     '/v1/courses': { get: { summary: '读取课表' }, post: { summary: '添加课程' } },
     '/v1/me/academic-settings': { get: { summary: '读取学期设置' }, put: { summary: '设置学期第一周日期' } },
     '/v1/assignments': { get: { summary: '读取作业' }, post: { summary: '添加作业' } },
+    '/v1/assignments/{id}/completion': { patch: { summary: '标记作业完成或未完成' } },
     '/v1/plans': { get: { summary: '读取自定义安排' }, post: { summary: '添加自定义安排' } },
+    '/v1/plans/{id}/completion': { patch: { summary: '标记自定义安排完成或未完成' } },
     '/v1/discover': { get: { summary: '发现可推荐的同学' } },
     '/v1/friends': { get: { summary: '读取好友及请求' } },
     '/v1/friend-requests': { post: { summary: '发送好友请求' } },
+    '/v1/friend-requests/{id}': { patch: { summary: '接受、拒绝或取消好友请求' } },
     '/v1/availability': { get: { summary: '查询好友共同空闲时间' } },
+    '/v1/availability-invites/{id}': { patch: { summary: '接受、拒绝或取消共同空闲邀请' } },
     '/v1/availability-invites': {
       get: { summary: '读取共同空闲邀请' },
       post: { summary: '发起共同空闲邀请' },
@@ -79,11 +90,21 @@ const OPENAPI_DOCUMENT = {
     '/v1/forum/posts/{id}': { get: { summary: '读取帖子和公开回复' } },
     '/v1/forum/posts/{id}/replies': { post: { summary: '公开回复帖子' } },
     '/v1/reports': { post: { summary: '举报公开内容' } },
+    '/v1/notifications': { get: { summary: '读取站内通知和未读数量' } },
+    '/v1/notifications/read': { post: { summary: '标记通知为已读' } },
+    '/v1/auth/cas/start': { post: { summary: '发起浏览器北邮 CAS 身份认证' } },
+    '/v1/auth/cas/callback': { get: { summary: '接收并校验北邮 CAS ticket' } },
+    '/v1/auth/cas/complete': { post: { summary: '使用已校验的一次性 CAS 结果创建 FStudy 账户' } },
+    '/v1/auth/cas/password/challenge': { post: { summary: '获取北邮验证码和短期挑战' } },
+    '/v1/auth/cas/password/refresh': { post: { summary: '更换北邮验证码并获得新的挑战' } },
+    '/v1/auth/cas/password/verify': { post: { summary: '提交一次性北邮密码和验证码完成注册' } },
     '/v1/admin/auth/login': { post: { summary: '管理员独立登录' } },
+    '/v1/admin/auth/logout': { post: { summary: '管理员退出登录' } },
     '/v1/admin/auth/password': { put: { summary: '修改管理员密码并撤销会话' } },
     '/v1/admin/overview': { get: { summary: '读取运营数据总览' } },
     '/v1/admin/users': { get: { summary: '搜索用户' } },
     '/v1/admin/users/{id}/status': { patch: { summary: '封禁或恢复用户' } },
+    '/v1/admin/reports/{id}': { patch: { summary: '解决或驳回举报' } },
     '/v1/admin/content': { get: { summary: '读取待管理内容' } },
     '/v1/admin/content/{type}/{id}': { patch: { summary: '隐藏、恢复或删除内容' } },
     '/v1/admin/reports': { get: { summary: '处理举报' } },
@@ -98,12 +119,13 @@ export function createApp(dependencies: RuntimeDependencies) {
   const scheduleService = new ScheduleService(dependencies.database);
   const assignmentService = new AssignmentService(dependencies.database);
   const planService = new PlanService(dependencies.database);
-  const discoveryService = new DiscoveryService(dependencies.database);
-  const friendService = new FriendService(dependencies.database);
-  const availabilityService = new AvailabilityService(dependencies.database);
+  const discoveryService = new DiscoveryService(dependencies.database, dependencies.clock);
+  const friendService = new FriendService(dependencies.database, dependencies.clock);
+  const availabilityService = new AvailabilityService(dependencies.database, dependencies.clock);
   const projectService = new ProjectService(dependencies.database);
   const forumService = new ForumService(dependencies.database);
   const adminService = new AdminService(dependencies);
+  const notificationService = new NotificationService(dependencies.database);
   const authentication = requireAuthentication(accountService);
   const adminAuthentication = requireAdminAuthentication(adminService);
 
@@ -146,6 +168,25 @@ export function createApp(dependencies: RuntimeDependencies) {
 
   app.get('/health', (context) => context.json({ status: 'ok' }, 200));
   app.get('/openapi.json', (context) => context.json(OPENAPI_DOCUMENT, 200));
+
+  const casLogin = new CasLoginService(dependencies, accountService, allowedOrigins);
+
+  app.post('/v1/auth/cas/start', async (context) => {
+    return context.json(await casLogin.startBrowserLogin(context.req.header('origin')), 200);
+  });
+
+  app.get('/v1/auth/cas/callback', async (context) => {
+    const location = await casLogin.handleBrowserCallback(context.req.query('ticket'), context.req.query('state'));
+    return context.redirect(location, 303);
+  });
+
+  app.post('/v1/auth/cas/complete', zValidator('json', CasCompleteSchema), async (context) => {
+    const { code, state, displayName, appPassword, departmentId } = context.req.valid('json');
+    const created = await casLogin.completeBrowserLogin({
+      code, state, origin: context.req.header('origin'), displayName, appPassword, departmentId,
+    });
+    return context.json(created, 201);
+  });
 
   app.post('/v1/admin/auth/login', zValidator('json', AdminLoginSchema), async (context) => {
     const { username, password } = context.req.valid('json');
@@ -195,8 +236,33 @@ export function createApp(dependencies: RuntimeDependencies) {
   app.get('/v1/admin/audit', async (context) => context.json({ entries: await adminService.listAudit() }, 200));
 
   app.post('/v1/auth/register', zValidator('json', RegisterSchema), async (context) => {
+    if (!dependencies.schoolPasswordRegistrationEnabled) {
+      throw new DomainError(
+        'browser_identity_auth_required',
+        '请使用北邮统一身份认证跳转完成注册；FStudy 不接收学校密码',
+        403,
+      );
+    }
     const result = await accountService.register(context.req.valid('json'));
     return context.json(result, 201);
+  });
+
+  app.post('/v1/auth/cas/password/challenge', zValidator('json', CasPasswordChallengeSchema), async (context) => {
+    const { studentId } = context.req.valid('json');
+    return context.json(await casLogin.issuePasswordChallenge(context.req.header('origin'), studentId), 200);
+  });
+
+  app.post('/v1/auth/cas/password/verify', zValidator('json', CasPasswordVerificationSchema), async (context) => {
+    const outcome = await casLogin.verifyPasswordChallenge(context.req.valid('json'));
+    if (outcome.kind === 'retry') {
+      return context.json({ error: { code: outcome.code, message: outcome.message }, retryAllowed: true }, 401);
+    }
+    return context.json(outcome.session, 201);
+  });
+
+  app.post('/v1/auth/cas/password/refresh', zValidator('json', CasPasswordRefreshSchema), async (context) => {
+    const { challengeId, studentId } = context.req.valid('json');
+    return context.json(await casLogin.refreshPasswordChallenge(challengeId, studentId), 200);
   });
 
   app.post('/v1/auth/login', zValidator('json', LoginSchema), async (context) => {
@@ -212,6 +278,7 @@ export function createApp(dependencies: RuntimeDependencies) {
   app.use('/v1/assignments/*', authentication);
   app.use('/v1/plans', authentication);
   app.use('/v1/plans/*', authentication);
+  app.use('/v1/tags', authentication);
   app.use('/v1/discover', authentication);
   app.use('/v1/friends', authentication);
   app.use('/v1/friend-requests', authentication);
@@ -240,6 +307,15 @@ export function createApp(dependencies: RuntimeDependencies) {
       params: [context.get('userId')],
     });
     return context.json({ semesterStartDate: result.rows[0]?.semester_start_date ?? null }, 200);
+  });
+
+  app.get('/v1/notifications', authentication, async (context) => {
+    return context.json(await notificationService.list(context.get('userId')), 200);
+  });
+  app.post('/v1/notifications/read', authentication, zValidator('json', NotificationReadSchema), async (context) => {
+    const { id } = context.req.valid('json');
+    await notificationService.markRead(context.get('userId'), id);
+    return context.json(await notificationService.list(context.get('userId')), 200);
   });
 
   app.put('/v1/me/academic-settings', zValidator('json', AcademicSettingsSchema), async (context) => {

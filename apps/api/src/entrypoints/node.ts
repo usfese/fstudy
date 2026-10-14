@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { serve } from '@hono/node-server';
 import { NodeSqliteDatabase } from '../adapters/node-database.js';
-import { DevelopmentStudentVerifier, DisabledStudentVerifier } from '../adapters/student-verifier.js';
+import { BuptCasStudentVerifier, DevelopmentStudentVerifier, DisabledStudentVerifier } from '../adapters/student-verifier.js';
 import { createApp } from '../http/app.js';
 import { AdminService } from '../modules/admin/admin-service.js';
 
@@ -60,15 +60,47 @@ const academicSettingsTables = await database.execute<{ name: string }>({
 if (academicSettingsTables.rows.length === 0) {
   database.applyMigration(readFileSync(new URL('../../migrations/0009_academic_settings.sql', import.meta.url), 'utf8'));
 }
-
+const notificationTables = await database.execute<{ name: string }>({
+  sql: "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'notifications'",
+});
+if (notificationTables.rows.length === 0) {
+  database.applyMigration(readFileSync(new URL('../../migrations/0010_notifications.sql', import.meta.url), 'utf8'));
+}
+const casLoginTables = await database.execute<{ name: string }>({
+  sql: "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'cas_login_states'",
+});
+if (casLoginTables.rows.length === 0) {
+  database.applyMigration(readFileSync(new URL('../../migrations/0011_cas_browser_login.sql', import.meta.url), 'utf8'));
+}
+const casChallengeTables = await database.execute<{ name: string }>({
+  sql: "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'cas_password_challenges'",
+});
+if (casChallengeTables.rows.length === 0) {
+  database.applyMigration(readFileSync(new URL('../../migrations/0012_cas_password_challenges.sql', import.meta.url), 'utf8'));
+}
+const casAttemptIndex = await database.execute<{ name: string }>({
+  sql: "SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'cas_password_challenges_attempts_idx'",
+});
+if (casAttemptIndex.rows.length === 0) {
+  database.applyMigration(readFileSync(new URL('../../migrations/0013_cas_challenge_attempts.sql', import.meta.url), 'utf8'));
+}
 const authMode = process.env.AUTH_MODE ?? 'dev';
 const studentIdPepper = process.env.STUDENT_ID_PEPPER ?? 'local-development-only-pepper';
 if (process.env.NODE_ENV === 'production' && studentIdPepper.length < 32) {
   throw new Error('STUDENT_ID_PEPPER must be configured with at least 32 characters in production');
 }
+if (process.env.SCHOOL_PASSWORD_REGISTRATION_ENABLED === 'true'
+  && authMode === 'bupt-cas'
+  && (process.env.CAS_STATE_ENCRYPTION_KEY ?? '').length < 32) {
+  throw new Error('CAS_STATE_ENCRYPTION_KEY must be configured with at least 32 characters');
+}
 const dependencies = {
   database,
-  studentVerifier: authMode === 'dev' ? new DevelopmentStudentVerifier() : new DisabledStudentVerifier(),
+  studentVerifier: authMode === 'dev'
+    ? new DevelopmentStudentVerifier()
+    : authMode === 'bupt-cas'
+    ? new BuptCasStudentVerifier()
+    : new DisabledStudentVerifier(),
   studentIdPepper,
   allowedOrigins: (process.env.ALLOWED_ORIGINS ?? 'http://127.0.0.1:8080,http://localhost:8080,http://127.0.0.1:8081,http://localhost:8081')
     .split(',')
@@ -76,6 +108,11 @@ const dependencies = {
     .filter(Boolean),
   adminBootstrapUsername: process.env.ADMIN_BOOTSTRAP_USERNAME,
   adminBootstrapPassword: process.env.ADMIN_BOOTSTRAP_PASSWORD,
+  casCallbackUrl: process.env.CAS_CALLBACK_URL,
+  casLoginEnabled: process.env.CAS_LOGIN_ENABLED === 'true',
+  schoolPasswordRegistrationEnabled:
+    authMode === 'dev' || process.env.SCHOOL_PASSWORD_REGISTRATION_ENABLED === 'true',
+  casStateEncryptionKey: process.env.CAS_STATE_ENCRYPTION_KEY,
 };
 try {
   await new AdminService(dependencies).bootstrap();

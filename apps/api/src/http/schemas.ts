@@ -112,6 +112,37 @@ export const AcademicSettingsSchema = z.object({
   semesterStartDate: z.iso.date().nullable(),
 });
 
+export const NotificationReadSchema = z.object({
+  id: z.string().min(1).max(64).optional(),
+});
+
+export const CasCompleteSchema = z.object({
+  code: z.string().min(32).max(128),
+  state: z.string().min(32).max(128),
+  displayName: z.string().trim().min(1).max(30).optional(),
+  appPassword: z.string().min(10).max(128).optional(),
+  departmentId: z.string().trim().min(1).max(64).nullable().default(null),
+});
+
+export const CasPasswordChallengeSchema = z.object({
+  studentId: z.string().regex(/^\d{8,12}$/),
+});
+
+export const CasPasswordVerificationSchema = z.object({
+  challengeId: z.string().min(32).max(128),
+  studentId: z.string().regex(/^\d{8,12}$/),
+  schoolPassword: z.string().min(1).max(256),
+  captcha: z.string().max(32).nullable().optional(),
+  displayName: z.string().trim().min(1).max(30),
+  appPassword: z.string().min(10).max(128),
+  departmentId: z.string().trim().min(1).max(64).nullable().default(null),
+});
+
+export const CasPasswordRefreshSchema = z.object({
+  challengeId: z.string().min(32).max(128),
+  studentId: z.string().regex(/^\d{8,12}$/),
+});
+
 export const AdminUserStatusSchema = z.object({ status: z.enum(['active', 'suspended']) });
 export const AdminContentActionSchema = z.object({ action: z.enum(['hide', 'restore', 'delete']) });
 export const AdminReportStatusSchema = z.object({ status: z.enum(['resolved', 'dismissed']) });

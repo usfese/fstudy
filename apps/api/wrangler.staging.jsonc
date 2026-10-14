@@ -6,7 +6,10 @@
   "workers_dev": true,
   "preview_urls": false,
   "vars": {
-    "AUTH_MODE": "disabled",
+    "AUTH_MODE": "bupt-cas",
+    "SCHOOL_PASSWORD_REGISTRATION_ENABLED": "false",
+    "CAS_LOGIN_ENABLED": "false",
+    "CAS_CALLBACK_URL": "https://fstudy-api-staging.a07450865.workers.dev/v1/auth/cas/callback",
     "ALLOWED_ORIGINS": "https://fstudy-student-staging.pages.dev"
   },
   "d1_databases": [

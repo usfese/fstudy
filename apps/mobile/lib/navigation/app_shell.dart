@@ -4,11 +4,17 @@ import 'package:go_router/go_router.dart';
 class AppShell extends StatelessWidget {
   const AppShell({
     required this.navigationShell,
+    required this.unreadCount,
+    required this.onOpenNotifications,
+    required this.onThemeModeChanged,
     required this.onLogout,
     super.key,
   });
 
   final StatefulNavigationShell navigationShell;
+  final int unreadCount;
+  final VoidCallback onOpenNotifications;
+  final ValueChanged<ThemeMode> onThemeModeChanged;
   final Future<void> Function() onLogout;
 
   void _goTo(int index) {
@@ -60,6 +66,7 @@ class AppShell extends StatelessWidget {
         label: '社区',
       ),
       NavigationDestination(
+        key: Key('profileNavigationDestination'),
         icon: Icon(Icons.person_outline),
         selectedIcon: Icon(Icons.person),
         label: '我的',
@@ -78,9 +85,14 @@ class AppShell extends StatelessWidget {
         ),
         actions: [
           IconButton(
-            tooltip: '退出登录',
-            onPressed: onLogout,
-            icon: const Icon(Icons.logout),
+            key: const Key('notificationsButton'),
+            tooltip: '通知${unreadCount > 0 ? '，$unreadCount 条未读' : ''}',
+            onPressed: onOpenNotifications,
+            icon: Badge(
+              isLabelVisible: unreadCount > 0,
+              label: Text(unreadCount > 99 ? '99+' : '$unreadCount'),
+              child: const Icon(Icons.notifications_outlined),
+            ),
           ),
           const SizedBox(width: 8),
         ],

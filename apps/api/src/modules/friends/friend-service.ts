@@ -1,5 +1,6 @@
 import { DomainError } from '../../core/errors.js';
 import type { SqlDatabase } from '../../core/types.js';
+import { NotificationService } from '../notifications/notification-service.js';
 
 type RequestRow = {
   id: string;
@@ -29,7 +30,14 @@ function pairKey(first: string, second: string): string {
 }
 
 export class FriendService {
-  constructor(private readonly database: SqlDatabase) {}
+  private readonly notifications: NotificationService;
+
+  constructor(
+    private readonly database: SqlDatabase,
+    private readonly clock: () => Date = () => new Date(),
+  ) {
+    this.notifications = new NotificationService(database);
+  }
 
   async send(userId: string, targetUserId: string) {
     if (userId === targetUserId) {
@@ -37,8 +45,9 @@ export class FriendService {
     }
     const target = await this.database.execute<{ id: string }>({
       sql: `SELECT id FROM users
-            WHERE id = ? AND status = 'active' AND discoverable = 1`,
-      params: [targetUserId],
+            WHERE id = ? AND status = 'active' AND discoverable = 1
+              AND EXISTS (SELECT 1 FROM student_identities si WHERE si.user_id = users.id AND si.expires_at > ?)`,
+      params: [targetUserId, this.clock().toISOString()],
     });
     if (!target.rows[0]) {
       throw new DomainError('user_not_available', '该用户当前不可添加', 404);
@@ -77,6 +86,18 @@ export class FriendService {
         params: [id, key, userId, targetUserId, now],
       });
     }
+    const sender = await this.database.execute<{ display_name: string }>({
+      sql: 'SELECT display_name FROM users WHERE id = ?',
+      params: [userId],
+    });
+    await this.notifications.create({
+      recipientId: targetUserId,
+      actorId: userId,
+      kind: 'friend_request',
+      title: '收到好友申请',
+      body: `${sender.rows[0]?.display_name ?? '一位同学'}向你发送了好友申请`,
+      targetPath: '/discover/friends',
+    });
     return { id };
   }
 

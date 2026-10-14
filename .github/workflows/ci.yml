@@ -36,6 +36,9 @@ jobs:
       - name: Install API dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Check knowledge base
+        run: node scripts/knowledge-check.mjs --strict
+
       - name: Check API types
         run: pnpm check
 

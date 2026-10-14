@@ -4,8 +4,17 @@ import 'package:go_router/go_router.dart';
 import 'profile_repository.dart';
 
 class ProfilePage extends StatefulWidget {
-  const ProfilePage({required this.repository, super.key});
+  const ProfilePage({
+    required this.repository,
+    required this.themeMode,
+    required this.onThemeModeChanged,
+    required this.onLogout,
+    super.key,
+  });
   final ProfileRepository repository;
+  final ThemeMode themeMode;
+  final ValueChanged<ThemeMode> onThemeModeChanged;
+  final Future<void> Function() onLogout;
 
   @override
   State<ProfilePage> createState() => _ProfilePageState();
@@ -95,6 +104,7 @@ class _ProfilePageState extends State<ProfilePage> {
             child: Form(
               key: _form,
               child: ListView(
+                key: const Key('profileSettingsList'),
                 padding: const EdgeInsets.all(24),
                 children: [
                   Text(
@@ -169,6 +179,20 @@ class _ProfilePageState extends State<ProfilePage> {
                       onTap: () => context.go('/profile/tags'),
                     ),
                   ),
+                  const SizedBox(height: 12),
+                  Card(
+                    margin: EdgeInsets.zero,
+                    child: SwitchListTile(
+                      key: const Key('darkModeSwitch'),
+                      secondary: const Icon(Icons.dark_mode_outlined),
+                      title: const Text('夜间模式'),
+                      subtitle: const Text('此设置保存在当前设备'),
+                      value: widget.themeMode == ThemeMode.dark,
+                      onChanged: (enabled) => widget.onThemeModeChanged(
+                        enabled ? ThemeMode.dark : ThemeMode.light,
+                      ),
+                    ),
+                  ),
                   const SizedBox(height: 24),
                   Align(
                     alignment: Alignment.centerRight,
@@ -179,6 +203,22 @@ class _ProfilePageState extends State<ProfilePage> {
                       label: Text(_saving ? '保存中…' : '保存设置'),
                     ),
                   ),
+                  const SizedBox(height: 48),
+                  const Divider(),
+                  const SizedBox(height: 16),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: TextButton.icon(
+                      key: const Key('logoutButton'),
+                      onPressed: _confirmLogout,
+                      icon: const Icon(Icons.logout),
+                      label: const Text('退出登录'),
+                      style: TextButton.styleFrom(
+                        foregroundColor: Theme.of(context).colorScheme.error,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 24),
                 ],
               ),
             ),
@@ -186,5 +226,28 @@ class _ProfilePageState extends State<ProfilePage> {
         );
       },
     );
+  }
+
+  Future<void> _confirmLogout() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('确认退出登录？'),
+        content: const Text('退出后需要重新登录才能使用课表和社区。'),
+        actions: [
+          TextButton(
+            key: const Key('cancelLogoutButton'),
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('继续使用'),
+          ),
+          FilledButton.tonal(
+            key: const Key('confirmLogoutButton'),
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('退出登录'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true) await widget.onLogout();
   }
 }

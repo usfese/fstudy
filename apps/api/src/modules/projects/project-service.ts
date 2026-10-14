@@ -1,5 +1,6 @@
 import { DomainError } from '../../core/errors.js';
 import type { SqlDatabase } from '../../core/types.js';
+import { NotificationService } from '../notifications/notification-service.js';
 
 type ProjectRow = {
   id: string; owner_id: string; owner_name: string; title: string; description: string;
@@ -15,7 +16,11 @@ type ApplicationRow = {
 };
 
 export class ProjectService {
-  constructor(private readonly database: SqlDatabase) {}
+  private readonly notifications: NotificationService;
+
+  constructor(private readonly database: SqlDatabase) {
+    this.notifications = new NotificationService(database);
+  }
 
   async list(userId: string, status?: string, tagId?: string) {
     const conditions = ['1 = 1'];
@@ -126,10 +131,10 @@ export class ProjectService {
   }
 
   async apply(userId: string, projectId: string, message: string) {
-    const project = await this.database.execute<{ owner_id: string; status: string; capacity: number; member_count: number }>({
-      sql: `SELECT p.owner_id, p.status, p.capacity,
+    const project = await this.database.execute<{ owner_id: string; owner_name: string; title: string; status: string; capacity: number; member_count: number }>({
+      sql: `SELECT p.owner_id, u.display_name AS owner_name, p.title, p.status, p.capacity,
               (SELECT COUNT(*) FROM project_members pm WHERE pm.project_id = p.id) AS member_count
-            FROM projects p WHERE p.id = ?`,
+            FROM projects p JOIN users u ON u.id = p.owner_id WHERE p.id = ?`,
       params: [projectId],
     });
     const row = project.rows[0];
@@ -159,6 +164,18 @@ export class ProjectService {
       }
       throw error;
     }
+    const applicant = await this.database.execute<{ display_name: string }>({
+      sql: 'SELECT display_name FROM users WHERE id = ?',
+      params: [userId],
+    });
+    await this.notifications.create({
+      recipientId: row.owner_id,
+      actorId: userId,
+      kind: 'project_application',
+      title: '组队收到新申请',
+      body: `${applicant.rows[0]?.display_name ?? '一位同学'}申请加入「${row.title}」`,
+      targetPath: '/community?tab=teams',
+    });
     return { id };
   }
 

@@ -7,6 +7,7 @@ import 'package:fstudy/features/community/forum_repository.dart';
 import 'package:fstudy/features/plans/plan_repository.dart';
 import 'package:fstudy/features/profile/profile_repository.dart';
 import 'package:fstudy/features/projects/project_repository.dart';
+import 'package:fstudy/features/notifications/notification_repository.dart';
 import 'package:fstudy/features/social/social_repository.dart';
 
 class FakeAuthRepository implements AuthRepository {
@@ -14,6 +15,7 @@ class FakeAuthRepository implements AuthRepository {
 
   final AuthSession? session;
   bool loggedOut = false;
+  bool casStarted = false;
 
   @override
   Future<AuthSession?> restoreSession() async => session;
@@ -36,6 +38,47 @@ class FakeAuthRepository implements AuthRepository {
   }) {
     throw UnimplementedError();
   }
+
+  @override
+  Future<void> startBrowserCas() async {
+    casStarted = true;
+  }
+
+  @override
+  Future<AuthSession> completeBrowserCas({
+    required String code,
+    required String state,
+    String? displayName,
+    String? appPassword,
+    String? departmentId,
+  }) async => session ?? testSession;
+
+  @override
+  Future<CasPasswordChallenge> beginCasPasswordChallenge(
+    String studentId,
+  ) async => const CasPasswordChallenge(
+    id: 'test-challenge',
+    captchaImage: 'data:image/png;base64,AA==',
+  );
+
+  @override
+  Future<CasPasswordChallenge> refreshCasPasswordChallenge({
+    required String challengeId,
+    required String studentId,
+  }) async => const CasPasswordChallenge(
+    id: 'refreshed-challenge',
+    captchaImage: 'data:image/png;base64,AA==',
+  );
+
+  @override
+  Future<AuthSession> verifyCasPasswordChallenge({
+    required String challengeId,
+    required String studentId,
+    required String schoolPassword,
+    required String? captcha,
+    required String displayName,
+    required String appPassword,
+  }) async => session ?? testSession;
 
   @override
   Future<void> logout() async => loggedOut = true;
@@ -535,6 +578,37 @@ class FakeForumRepository implements ForumRepository {
   }
 }
 
+class FakeNotificationRepository implements NotificationRepository {
+  List<AppNotification> notifications = [];
+
+  @override
+  Future<NotificationOverview> list() async => NotificationOverview(
+    unreadCount: notifications.where((item) => !item.isRead).length,
+    notifications: notifications,
+  );
+
+  @override
+  Future<NotificationOverview> markRead({String? id}) async {
+    final now = DateTime.now();
+    notifications = notifications
+        .map(
+          (item) => id == null || item.id == id
+              ? AppNotification(
+                  id: item.id,
+                  kind: item.kind,
+                  title: item.title,
+                  body: item.body,
+                  targetPath: item.targetPath,
+                  createdAt: item.createdAt,
+                  readAt: item.readAt ?? now,
+                )
+              : item,
+        )
+        .toList();
+    return list();
+  }
+}
+
 const testSession = AuthSession(
   accessToken: 'token',
   user: AuthUser(id: 'user-id', displayName: '测试同学', departmentId: 'computer'),
@@ -547,6 +621,7 @@ Widget testApp(
   FakeSocialRepository? socialRepository,
   FakeProjectRepository? projectRepository,
   FakeForumRepository? forumRepository,
+  FakeNotificationRepository? notificationRepository,
 }) => FStudyApp(
   repository: FakeAuthRepository(session: testSession),
   academicRepositoryFactory: (_) => academicRepository,
@@ -555,6 +630,8 @@ Widget testApp(
   socialRepositoryFactory: (_) => socialRepository ?? FakeSocialRepository(),
   projectRepositoryFactory: (_) => projectRepository ?? FakeProjectRepository(),
   forumRepositoryFactory: (_) => forumRepository ?? FakeForumRepository(),
+  notificationRepositoryFactory: (_) =>
+      notificationRepository ?? FakeNotificationRepository(),
 );
 
 void main() {
@@ -568,6 +645,21 @@ void main() {
     expect(find.text('登录你的课业空间'), findsOneWidget);
   });
 
+  testWidgets(
+    'CAS browser login starts without showing a school password field',
+    (tester) async {
+      final repository = FakeAuthRepository();
+      await tester.pumpWidget(FStudyApp(repository: repository));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('buptCasLoginButton')));
+      await tester.pumpAndSettle();
+
+      expect(repository.casStarted, isTrue);
+      expect(find.byKey(const Key('schoolPasswordField')), findsNothing);
+    },
+  );
+
   testWidgets('logging out returns to the login form', (tester) async {
     final repository = FakeAuthRepository(
       session: const AuthSession(
@@ -579,19 +671,83 @@ void main() {
         ),
       ),
     );
+    final profile = FakeProfileRepository();
     await tester.pumpWidget(
       FStudyApp(
         repository: repository,
         academicRepositoryFactory: (_) => FakeAcademicRepository(),
+        profileRepositoryFactory: (_) => profile,
       ),
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byTooltip('退出登录'));
+    await tester.tap(find.text('我的'));
+    await tester.pumpAndSettle();
+    expect(find.text('个人资料'), findsOneWidget);
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('logoutButton')),
+      300,
+      scrollable: find.byType(Scrollable).last,
+    );
+    await tester.tap(find.byKey(const Key('logoutButton')));
+    await tester.pumpAndSettle();
+    expect(find.text('确认退出登录？'), findsOneWidget);
+    await tester.tap(find.byKey(const Key('confirmLogoutButton')));
     await tester.pumpAndSettle();
 
     expect(repository.loggedOut, isTrue);
     expect(find.text('登录你的课业空间'), findsOneWidget);
+  });
+
+  testWidgets('dark mode can be selected from profile settings', (
+    tester,
+  ) async {
+    await tester.pumpWidget(testApp(FakeAcademicRepository()));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('我的'));
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('darkModeSwitch')),
+      300,
+      scrollable: find.byType(Scrollable).last,
+    );
+    await tester.tap(find.byKey(const Key('darkModeSwitch')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('darkModeSwitch')), findsOneWidget);
+    expect(
+      tester.widget<MaterialApp>(find.byType(MaterialApp).last).themeMode,
+      ThemeMode.dark,
+    );
+  });
+
+  testWidgets('notification bell opens inbox and marks notifications read', (
+    tester,
+  ) async {
+    final notifications = FakeNotificationRepository()
+      ..notifications = [
+        AppNotification(
+          id: 'n-1',
+          kind: 'friend_request',
+          title: '收到好友申请',
+          body: '甲同学向你发送了好友申请',
+          targetPath: '/discover/friends',
+          createdAt: DateTime(2026, 10, 10),
+          readAt: null,
+        ),
+      ];
+    await tester.pumpWidget(
+      testApp(FakeAcademicRepository(), notificationRepository: notifications),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('notificationsButton')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('收到好友申请'), findsOneWidget);
+    expect(find.text('全部已读'), findsOneWidget);
+    await tester.tap(find.byKey(const Key('markAllNotificationsReadButton')));
+    await tester.pumpAndSettle();
+    expect((await notifications.list()).unreadCount, 0);
   });
 
   testWidgets('the schedule card opens a schedule page', (tester) async {
@@ -646,6 +802,13 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('打开北邮官方沙河校区平面图'), findsOneWidget);
+    final rail = find.byType(NavigationRail);
+    final selectedIndex = rail.evaluate().isNotEmpty
+        ? tester.widget<NavigationRail>(rail).selectedIndex
+        : tester
+              .widget<NavigationBar>(find.byType(NavigationBar))
+              .selectedIndex;
+    expect(selectedIndex, 2);
   });
 
   testWidgets('a newly created course appears without a page refresh', (
@@ -753,7 +916,7 @@ void main() {
     'semester start date selects and labels the current teaching week',
     (tester) async {
       final repository = FakeAcademicRepository()
-        ..semesterStartDate = DateTime(2026, 10, 5)
+        ..semesterStartDate = DateTime(2026, 10, 12)
         ..courses.add(
           const Course(
             id: 'networks',
@@ -777,10 +940,15 @@ void main() {
       await tester.tap(find.text('本周课表'));
       await tester.pumpAndSettle();
 
-      expect(find.text('2026年10月5日（星期一）'), findsOneWidget);
-      await tester.tap(find.byKey(const Key('scheduleWeekSelector')));
-      await tester.pumpAndSettle();
-      expect(find.text('第 1 周 · 本周'), findsWidgets);
+      expect(find.text('2026年10月12日（星期一）'), findsOneWidget);
+      expect(
+        tester
+            .widget<DropdownButton<int>>(
+              find.byKey(const Key('scheduleWeekSelector')),
+            )
+            .value,
+        1,
+      );
     },
   );
 

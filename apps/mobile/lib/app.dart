@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/semantics.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:go_router/go_router.dart';
 
 import 'features/academic/academic_repository.dart';
@@ -11,6 +12,8 @@ import 'features/community/community_page.dart';
 import 'features/community/forum_repository.dart';
 import 'features/home/home_page.dart';
 import 'features/map/campus_map_page.dart';
+import 'features/notifications/notification_repository.dart';
+import 'features/notifications/notifications_page.dart';
 import 'features/plans/plan_repository.dart';
 import 'features/plans/plans_page.dart';
 import 'features/profile/profile_page.dart';
@@ -32,6 +35,7 @@ class FStudyApp extends StatefulWidget {
     this.socialRepositoryFactory,
     this.projectRepositoryFactory,
     this.forumRepositoryFactory,
+    this.notificationRepositoryFactory,
     super.key,
   });
 
@@ -45,6 +49,8 @@ class FStudyApp extends StatefulWidget {
   final ProjectRepository Function(AuthSession session)?
   projectRepositoryFactory;
   final ForumRepository Function(AuthSession session)? forumRepositoryFactory;
+  final NotificationRepository Function(AuthSession session)?
+  notificationRepositoryFactory;
 
   @override
   State<FStudyApp> createState() => _FStudyAppState();
@@ -52,6 +58,9 @@ class FStudyApp extends StatefulWidget {
 
 class _FStudyAppState extends State<FStudyApp> {
   late final SemanticsHandle _semanticsHandle;
+  static const _themeStorageKey = 'fstudy_theme_mode';
+  static const _storage = FlutterSecureStorage();
+  ThemeMode _themeMode = ThemeMode.light;
   AuthSession? _session;
   AcademicRepository? _academicRepository;
   PlanRepository? _planRepository;
@@ -59,7 +68,9 @@ class _FStudyAppState extends State<FStudyApp> {
   SocialRepository? _socialRepository;
   ProjectRepository? _projectRepository;
   ForumRepository? _forumRepository;
+  NotificationRepository? _notificationRepository;
   bool _restoring = true;
+  int _unreadNotificationCount = 0;
   late final GoRouter _router;
 
   @override
@@ -72,26 +83,48 @@ class _FStudyAppState extends State<FStudyApp> {
       routes: [
         GoRoute(
           path: '/login',
-          builder: (context, state) => AuthPage(
-            repository: widget.repository,
-            onAuthenticated: _onAuthenticated,
-          ),
+          builder: (context, state) {
+            final callbackParams = Uri.splitQueryString(state.uri.fragment);
+            return AuthPage(
+              repository: widget.repository,
+              onAuthenticated: _onAuthenticated,
+              casCode:
+                  callbackParams['cas_code'] ??
+                  state.uri.queryParameters['cas_code'],
+              casState:
+                  callbackParams['cas_state'] ??
+                  state.uri.queryParameters['cas_state'],
+            );
+          },
+        ),
+        GoRoute(
+          path: '/notifications',
+          builder: (context, state) {
+            if (_session == null || _notificationRepository == null) {
+              return const Scaffold(body: Center(child: Text('请先登录后查看通知')));
+            }
+            return NotificationsPage(
+              repository: _notificationRepository!,
+              onUnreadCountChanged: (count) => setState(() {
+                _unreadNotificationCount = count;
+              }),
+            );
+          },
         ),
         StatefulShellRoute.indexedStack(
-          builder: (context, state, navigationShell) =>
-              AppShell(navigationShell: navigationShell, onLogout: _logout),
+          builder: (context, state, navigationShell) => AppShell(
+            navigationShell: navigationShell,
+            unreadCount: _unreadNotificationCount,
+            onOpenNotifications: () => context.go('/notifications'),
+            onThemeModeChanged: _setThemeMode,
+            onLogout: _logout,
+          ),
           branches: [
             StatefulShellBranch(
               routes: [
                 GoRoute(
                   path: '/',
                   builder: (context, state) => HomePage(session: _session!),
-                  routes: [
-                    GoRoute(
-                      path: 'map',
-                      builder: (context, state) => const CampusMapPage(),
-                    ),
-                  ],
                 ),
               ],
             ),
@@ -169,8 +202,12 @@ class _FStudyAppState extends State<FStudyApp> {
               routes: [
                 GoRoute(
                   path: '/profile',
-                  builder: (context, state) =>
-                      ProfilePage(repository: _profileRepository!),
+                  builder: (context, state) => ProfilePage(
+                    repository: _profileRepository!,
+                    themeMode: _themeMode,
+                    onThemeModeChanged: _setThemeMode,
+                    onLogout: _logout,
+                  ),
                   routes: [
                     GoRoute(
                       path: 'tags',
@@ -191,12 +228,41 @@ class _FStudyAppState extends State<FStudyApp> {
       redirect: (context, state) {
         if (_restoring) return null;
         final onLogin = state.matchedLocation == '/login';
+        final hasCasReturn =
+            state.uri.queryParameters.containsKey('cas_code') ||
+            state.uri.queryParameters.containsKey('cas_state');
         if (_session == null && !onLogin) return '/login';
-        if (_session != null && onLogin) return '/';
+        if (_session != null && onLogin && !hasCasReturn) return '/';
         return null;
       },
     );
+    _restoreThemeMode();
     _restoreSession();
+  }
+
+  Future<void> _restoreThemeMode() async {
+    String? value;
+    try {
+      value = await _storage.read(key: _themeStorageKey);
+    } catch (_) {
+      return;
+    }
+    if (!mounted || value == null) return;
+    setState(
+      () => _themeMode = value == 'dark' ? ThemeMode.dark : ThemeMode.light,
+    );
+  }
+
+  Future<void> _setThemeMode(ThemeMode mode) async {
+    setState(() => _themeMode = mode);
+    try {
+      await _storage.write(
+        key: _themeStorageKey,
+        value: mode == ThemeMode.dark ? 'dark' : 'light',
+      );
+    } catch (_) {
+      // Keep the current-session choice even if platform storage is unavailable.
+    }
   }
 
   Future<void> _restoreSession() async {
@@ -211,6 +277,7 @@ class _FStudyAppState extends State<FStudyApp> {
 
   void _setSession(AuthSession? session) {
     _session = session;
+    if (session == null) _unreadNotificationCount = 0;
     _academicRepository = session == null
         ? null
         : widget.academicRepositoryFactory?.call(session) ??
@@ -235,6 +302,24 @@ class _FStudyAppState extends State<FStudyApp> {
         ? null
         : widget.forumRepositoryFactory?.call(session) ??
               DioForumRepository(accessToken: session.accessToken);
+    _notificationRepository = session == null
+        ? null
+        : widget.notificationRepositoryFactory?.call(session) ??
+              DioNotificationRepository(accessToken: session.accessToken);
+    if (_notificationRepository != null) _refreshUnreadNotificationCount();
+  }
+
+  Future<void> _refreshUnreadNotificationCount() async {
+    final repository = _notificationRepository;
+    if (repository == null) return;
+    try {
+      final overview = await repository.list();
+      if (mounted && repository == _notificationRepository) {
+        setState(() => _unreadNotificationCount = overview.unreadCount);
+      }
+    } catch (_) {
+      // The rest of the app remains usable if notification fetch is unavailable.
+    }
   }
 
   void _onAuthenticated(AuthSession session) {
@@ -269,6 +354,8 @@ class _FStudyAppState extends State<FStudyApp> {
       title: 'FStudy',
       debugShowCheckedModeBanner: false,
       theme: _theme(),
+      darkTheme: _darkTheme(),
+      themeMode: _themeMode,
       routerConfig: _router,
     );
   }
@@ -283,6 +370,14 @@ class _FStudyAppState extends State<FStudyApp> {
       border: OutlineInputBorder(),
       filled: true,
       fillColor: Colors.white,
+    ),
+    useMaterial3: true,
+  );
+
+  ThemeData _darkTheme() => ThemeData(
+    colorScheme: ColorScheme.fromSeed(
+      seedColor: const Color(0xFF8EA7FF),
+      brightness: Brightness.dark,
     ),
     useMaterial3: true,
   );

@@ -1,5 +1,6 @@
 import { DomainError } from '../../core/errors.js';
 import type { SqlDatabase } from '../../core/types.js';
+import { NotificationService } from '../notifications/notification-service.js';
 
 type PostRow = {
   id: string;
@@ -22,7 +23,11 @@ type ReplyRow = {
 };
 
 export class ForumService {
-  constructor(private readonly database: SqlDatabase) {}
+  private readonly notifications: NotificationService;
+
+  constructor(private readonly database: SqlDatabase) {
+    this.notifications = new NotificationService(database);
+  }
 
   async list(category?: string) {
     const result = await this.database.execute<PostRow>({
@@ -88,8 +93,8 @@ export class ForumService {
   }
 
   async createReply(userId: string, postId: string, body: string) {
-    const post = await this.database.execute<{ id: string }>({
-      sql: "SELECT id FROM forum_posts WHERE id = ? AND moderation_status = 'visible'",
+    const post = await this.database.execute<{ id: string; author_id: string; title: string }>({
+      sql: "SELECT id, author_id, title FROM forum_posts WHERE id = ? AND moderation_status = 'visible'",
       params: [postId],
     });
     if (!post.rows[0]) throw new DomainError('forum_post_not_found', '帖子不存在', 404);
@@ -113,6 +118,18 @@ export class ForumService {
         params: [now, postId],
       },
     ]);
+    const author = await this.database.execute<{ display_name: string }>({
+      sql: 'SELECT display_name FROM users WHERE id = ?',
+      params: [userId],
+    });
+    await this.notifications.create({
+      recipientId: post.rows[0].author_id,
+      actorId: userId,
+      kind: 'forum_reply',
+      title: '讨论收到新回复',
+      body: `${author.rows[0]?.display_name ?? '一位同学'}回复了「${post.rows[0].title}」`,
+      targetPath: '/community',
+    });
     return { id };
   }
 
