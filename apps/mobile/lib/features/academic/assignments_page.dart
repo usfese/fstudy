@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'academic_repository.dart';
+import 'recent_inputs.dart';
 
 class AssignmentsPage extends StatefulWidget {
   const AssignmentsPage({required this.repository, super.key});
@@ -46,6 +47,64 @@ class _AssignmentsPageState extends State<AssignmentsPage> {
       setState(() {
         _reload();
       });
+    }
+  }
+
+  Future<void> _edit(Assignment assignment) async {
+    final data = await _data;
+    if (!mounted) return;
+    final updated = await showDialog<bool>(
+      context: context,
+      builder: (_) => _AssignmentDialog(
+        repository: widget.repository,
+        courses: data.courses,
+        assignment: assignment,
+      ),
+    );
+    if (updated == true && mounted) {
+      setState(() {
+        _reload();
+      });
+    }
+  }
+
+  Future<void> _delete(Assignment assignment) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('删除作业？'),
+        content: Text('将删除“${assignment.title}”，操作不可恢复。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(dialogContext).colorScheme.error,
+              foregroundColor: Theme.of(dialogContext).colorScheme.onError,
+            ),
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('删除'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    try {
+      await widget.repository.deleteAssignment(assignment.id);
+      if (mounted) {
+        setState(() {
+          _reload();
+        });
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text('作业已删除')));
+      }
+    } on AcademicFailure catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(error.message)));
+      }
     }
   }
 
@@ -140,6 +199,18 @@ class _AssignmentsPageState extends State<AssignmentsPage> {
                         ].join(' · '),
                       ),
                       controlAffinity: ListTileControlAffinity.leading,
+                      secondary: PopupMenuButton<String>(
+                        key: ValueKey('assignmentMenu-${assignment.id}'),
+                        tooltip: '作业操作',
+                        onSelected: (value) {
+                          if (value == 'edit') _edit(assignment);
+                          if (value == 'delete') _delete(assignment);
+                        },
+                        itemBuilder: (_) => const [
+                          PopupMenuItem(value: 'edit', child: Text('编辑作业')),
+                          PopupMenuItem(value: 'delete', child: Text('删除作业')),
+                        ],
+                      ),
                     ),
                   );
                 },
@@ -151,9 +222,14 @@ class _AssignmentsPageState extends State<AssignmentsPage> {
 }
 
 class _AssignmentDialog extends StatefulWidget {
-  const _AssignmentDialog({required this.repository, required this.courses});
+  const _AssignmentDialog({
+    required this.repository,
+    required this.courses,
+    this.assignment,
+  });
   final AcademicRepository repository;
   final List<Course> courses;
+  final Assignment? assignment;
 
   @override
   State<_AssignmentDialog> createState() => _AssignmentDialogState();
@@ -167,6 +243,18 @@ class _AssignmentDialogState extends State<_AssignmentDialog> {
   String? _courseId;
   bool _saving = false;
   String? _error;
+
+  bool get _editing => widget.assignment != null;
+
+  @override
+  void initState() {
+    super.initState();
+    final assignment = widget.assignment;
+    _title.text = assignment?.title ?? '';
+    _notes.text = assignment?.notes ?? '';
+    _dueAt = assignment?.dueAt?.toLocal();
+    _courseId = assignment?.courseId;
+  }
 
   @override
   void dispose() {
@@ -210,12 +298,24 @@ class _AssignmentDialogState extends State<_AssignmentDialog> {
       _error = null;
     });
     try {
-      await widget.repository.createAssignment(
-        title: _title.text.trim(),
-        notes: _notes.text.trim(),
-        courseId: _courseId,
-        dueAt: _dueAt,
-      );
+      if (_editing) {
+        await widget.repository.updateAssignment(
+          id: widget.assignment!.id,
+          title: _title.text.trim(),
+          notes: _notes.text.trim(),
+          courseId: _courseId,
+          dueAt: _dueAt,
+        );
+      } else {
+        await widget.repository.createAssignment(
+          title: _title.text.trim(),
+          notes: _notes.text.trim(),
+          courseId: _courseId,
+          dueAt: _dueAt,
+        );
+      }
+      RecentInputs.remember('assignment.title', _title.text);
+      RecentInputs.remember('assignment.notes', _notes.text);
       if (mounted) Navigator.pop(context, true);
     } on AcademicFailure catch (error) {
       if (mounted) setState(() => _error = error.message);
@@ -227,66 +327,74 @@ class _AssignmentDialogState extends State<_AssignmentDialog> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: const Text('添加作业'),
+      title: Text(_editing ? '编辑作业' : '添加作业'),
       content: SizedBox(
         width: 440,
         child: Form(
           key: _form,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextFormField(
-                key: const Key('assignmentTitleField'),
-                controller: _title,
-                validator: (value) =>
-                    value == null || value.trim().isEmpty ? '请填写作业标题' : null,
-                decoration: const InputDecoration(labelText: '作业标题'),
-              ),
-              const SizedBox(height: 12),
-              DropdownButtonFormField<String?>(
-                key: const Key('assignmentCourseField'),
-                initialValue: _courseId,
-                decoration: const InputDecoration(labelText: '关联课程（可选）'),
-                items: [
-                  const DropdownMenuItem<String?>(
-                    value: null,
-                    child: Text('不关联课程'),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                RecentInputField(
+                  fieldKey: const Key('assignmentTitleField'),
+                  memoryKey: 'assignment.title',
+                  controller: _title,
+                  validator: (value) =>
+                      value == null || value.trim().isEmpty ? '请填写作业标题' : null,
+                  decoration: const InputDecoration(labelText: '作业标题'),
+                ),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<String?>(
+                  key: const Key('assignmentCourseField'),
+                  initialValue: _courseId,
+                  decoration: const InputDecoration(labelText: '关联课程（可选）'),
+                  items: [
+                    const DropdownMenuItem<String?>(
+                      value: null,
+                      child: Text('不关联课程'),
+                    ),
+                    ...widget.courses.map(
+                      (course) => DropdownMenuItem<String?>(
+                        value: course.id,
+                        child: Text(course.name),
+                      ),
+                    ),
+                  ],
+                  onChanged: (value) => setState(() => _courseId = value),
+                ),
+                const SizedBox(height: 12),
+                RecentInputField(
+                  memoryKey: 'assignment.notes',
+                  controller: _notes,
+                  maxLines: 3,
+                  decoration: const InputDecoration(labelText: '备注（可选）'),
+                ),
+                const SizedBox(height: 12),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.event_outlined),
+                  title: Text(
+                    _dueAt == null ? '设置截止时间（可选）' : _dateTime(_dueAt!),
                   ),
-                  ...widget.courses.map(
-                    (course) => DropdownMenuItem<String?>(
-                      value: course.id,
-                      child: Text(course.name),
+                  onTap: _pickDueAt,
+                  trailing: _dueAt == null
+                      ? null
+                      : IconButton(
+                          tooltip: '清除截止时间',
+                          onPressed: () => setState(() => _dueAt = null),
+                          icon: const Icon(Icons.close),
+                        ),
+                ),
+                if (_error != null)
+                  Text(
+                    _error!,
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.error,
                     ),
                   ),
-                ],
-                onChanged: (value) => setState(() => _courseId = value),
-              ),
-              const SizedBox(height: 12),
-              TextFormField(
-                controller: _notes,
-                maxLines: 3,
-                decoration: const InputDecoration(labelText: '备注（可选）'),
-              ),
-              const SizedBox(height: 12),
-              ListTile(
-                contentPadding: EdgeInsets.zero,
-                leading: const Icon(Icons.event_outlined),
-                title: Text(_dueAt == null ? '设置截止时间（可选）' : _dateTime(_dueAt!)),
-                onTap: _pickDueAt,
-                trailing: _dueAt == null
-                    ? null
-                    : IconButton(
-                        tooltip: '清除截止时间',
-                        onPressed: () => setState(() => _dueAt = null),
-                        icon: const Icon(Icons.close),
-                      ),
-              ),
-              if (_error != null)
-                Text(
-                  _error!,
-                  style: TextStyle(color: Theme.of(context).colorScheme.error),
-                ),
-            ],
+              ],
+            ),
           ),
         ),
       ),

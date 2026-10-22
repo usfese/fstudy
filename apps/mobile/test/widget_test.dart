@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:fstudy/app.dart';
 import 'package:fstudy/features/auth/auth_repository.dart';
 import 'package:fstudy/features/academic/academic_repository.dart';
+import 'package:fstudy/features/academic/recent_inputs.dart';
 import 'package:fstudy/features/community/forum_repository.dart';
 import 'package:fstudy/features/plans/plan_repository.dart';
 import 'package:fstudy/features/profile/profile_repository.dart';
@@ -112,7 +113,7 @@ class FakeAcademicRepository implements AcademicRepository {
   Future<void> createCourse({
     required String name,
     required String? teacher,
-    required CourseMeeting meeting,
+    required List<CourseMeeting> meetings,
   }) async {
     courses.add(
       Course(
@@ -120,9 +121,37 @@ class FakeAcademicRepository implements AcademicRepository {
         name: name,
         teacher: teacher,
         color: '#3559C7',
-        meetings: [meeting],
+        meetings: meetings,
       ),
     );
+  }
+
+  @override
+  Future<void> updateCourse({
+    required String id,
+    required String name,
+    required String? teacher,
+    required String color,
+    required List<CourseMeeting> meetings,
+  }) async {
+    final index = courses.indexWhere((course) => course.id == id);
+    courses[index] = Course(
+      id: id,
+      name: name,
+      teacher: teacher,
+      color: color,
+      meetings: meetings,
+    );
+  }
+
+  @override
+  Future<void> deleteCourse(String id) async {
+    courses.removeWhere((course) => course.id == id);
+  }
+
+  @override
+  Future<void> clearCourses() async {
+    courses.clear();
   }
 
   @override
@@ -145,6 +174,31 @@ class FakeAcademicRepository implements AcademicRepository {
         completedAt: null,
       ),
     );
+  }
+
+  @override
+  Future<void> updateAssignment({
+    required String id,
+    required String title,
+    required String notes,
+    required String? courseId,
+    required DateTime? dueAt,
+  }) async {
+    final index = assignments.indexWhere((assignment) => assignment.id == id);
+    final assignment = assignments[index];
+    assignments[index] = Assignment(
+      id: assignment.id,
+      courseId: courseId,
+      title: title,
+      notes: notes,
+      dueAt: dueAt,
+      completedAt: assignment.completedAt,
+    );
+  }
+
+  @override
+  Future<void> deleteAssignment(String id) async {
+    assignments.removeWhere((assignment) => assignment.id == id);
   }
 
   @override
@@ -187,6 +241,33 @@ class FakePlanRepository implements PlanRepository {
         completedAt: null,
       ),
     );
+  }
+
+  @override
+  Future<void> updatePlan({
+    required String id,
+    required String title,
+    required String notes,
+    required DateTime startsAt,
+    required DateTime endsAt,
+    required int? reminderMinutes,
+  }) async {
+    final index = plans.indexWhere((plan) => plan.id == id);
+    final plan = plans[index];
+    plans[index] = Plan(
+      id: plan.id,
+      title: title,
+      notes: notes,
+      startsAt: startsAt,
+      endsAt: endsAt,
+      reminderMinutes: reminderMinutes,
+      completedAt: plan.completedAt,
+    );
+  }
+
+  @override
+  Future<void> deletePlan(String id) async {
+    plans.removeWhere((plan) => plan.id == id);
   }
 
   @override
@@ -905,6 +986,198 @@ void main() {
     expect(find.text('计算机网络'), findsOneWidget);
   });
 
+  testWidgets('course dialog uses the fixed period list', (tester) async {
+    final repository = FakeAcademicRepository();
+    await tester.pumpWidget(testApp(repository));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('本周课表'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('addCourseButton')));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(const Key('courseNameField')), '高等数学');
+
+    final secondPeriod = find.byKey(const Key('coursePeriodChip-0-1'));
+    await tester.ensureVisible(secondPeriod);
+    await tester.tap(secondPeriod);
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, '保存'));
+    await tester.pumpAndSettle();
+
+    final meeting = repository.courses.single.meetings.single;
+    expect(meeting.startMinute, 8 * 60);
+    expect(meeting.endMinute, 9 * 60 + 35);
+  });
+
+  testWidgets('recent course names appear as input suggestions', (
+    tester,
+  ) async {
+    RecentInputs.clear();
+    RecentInputs.remember('course.name', '计算机网络');
+    await tester.pumpWidget(testApp(FakeAcademicRepository()));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('本周课表'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('addCourseButton')));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(const Key('courseNameField')), '计算');
+    await tester.pumpAndSettle();
+
+    expect(find.text('计算机网络'), findsOneWidget);
+  });
+
+  testWidgets('weekly schedule is ordered by start time, not creation order', (
+    tester,
+  ) async {
+    final repository = FakeAcademicRepository()
+      ..courses.addAll(const [
+        Course(
+          id: 'late',
+          name: '晚课',
+          teacher: null,
+          color: '#3559C7',
+          meetings: [
+            CourseMeeting(
+              weekday: 1,
+              startMinute: 14 * 60,
+              endMinute: 15 * 60,
+              startWeek: 1,
+              endWeek: 16,
+              weekParity: 'all',
+            ),
+          ],
+        ),
+        Course(
+          id: 'early',
+          name: '早课',
+          teacher: null,
+          color: '#3559C7',
+          meetings: [
+            CourseMeeting(
+              weekday: 1,
+              startMinute: 8 * 60,
+              endMinute: 9 * 60,
+              startWeek: 1,
+              endWeek: 16,
+              weekParity: 'all',
+            ),
+          ],
+        ),
+      ]);
+    await tester.pumpWidget(testApp(repository));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('本周课表'));
+    await tester.pumpAndSettle();
+
+    expect(
+      tester.getTopLeft(find.text('早课')).dy,
+      lessThan(tester.getTopLeft(find.text('晚课')).dy),
+    );
+  });
+
+  testWidgets('a course can be edited and deleted', (tester) async {
+    final repository = FakeAcademicRepository()
+      ..courses.add(
+        const Course(
+          id: 'networks',
+          name: '计算机网络',
+          teacher: null,
+          color: '#3559C7',
+          meetings: [
+            CourseMeeting(
+              weekday: 1,
+              startMinute: 8 * 60,
+              endMinute: 9 * 60 + 35,
+              startWeek: 1,
+              endWeek: 16,
+              weekParity: 'all',
+            ),
+          ],
+        ),
+      );
+    await tester.pumpWidget(testApp(repository));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('本周课表'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(
+      find.byKey(const ValueKey('weekCourseMenu-networks-1-480')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('编辑课程'));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const Key('courseNameField')),
+      '计算机网络（实验）',
+    );
+    await tester.tap(find.widgetWithText(FilledButton, '保存'));
+    await tester.pumpAndSettle();
+    expect(repository.courses.single.name, '计算机网络（实验）');
+
+    await tester.tap(
+      find.byKey(const ValueKey('weekCourseMenu-networks-1-480')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('删除课程'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, '删除'));
+    await tester.pumpAndSettle();
+
+    expect(repository.courses, isEmpty);
+    expect(find.text('还没有课程'), findsOneWidget);
+  });
+
+  testWidgets('clearing the schedule requires an explicit confirmation', (
+    tester,
+  ) async {
+    final repository = FakeAcademicRepository()
+      ..courses.add(
+        const Course(
+          id: 'networks',
+          name: '计算机网络',
+          teacher: null,
+          color: '#3559C7',
+          meetings: [
+            CourseMeeting(
+              weekday: 1,
+              startMinute: 8 * 60,
+              endMinute: 9 * 60 + 35,
+              startWeek: 1,
+              endWeek: 16,
+              weekParity: 'all',
+            ),
+          ],
+        ),
+      );
+    await tester.pumpWidget(testApp(repository));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('本周课表'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('scheduleMoreMenu')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('清空全部课程'));
+    await tester.pumpAndSettle();
+    expect(
+      tester
+          .widget<FilledButton>(
+            find.byKey(const Key('clearScheduleConfirmButton')),
+          )
+          .onPressed,
+      isNull,
+    );
+
+    await tester.enterText(
+      find.byKey(const Key('clearScheduleConfirmField')),
+      '清空',
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('clearScheduleConfirmButton')));
+    await tester.pumpAndSettle();
+
+    expect(repository.courses, isEmpty);
+    expect(find.text('还没有课程'), findsOneWidget);
+  });
+
   testWidgets('a newly created assignment appears without a page refresh', (
     tester,
   ) async {
@@ -1088,6 +1361,46 @@ void main() {
     expect(title.style?.decoration, TextDecoration.lineThrough);
   });
 
+  testWidgets('an assignment can be edited and deleted', (tester) async {
+    final repository = FakeAcademicRepository()
+      ..assignments.add(
+        const Assignment(
+          id: 'homework',
+          courseId: null,
+          title: '完成实验报告',
+          notes: '',
+          dueAt: null,
+          completedAt: null,
+        ),
+      );
+    await tester.pumpWidget(testApp(repository));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('待交作业'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('assignmentMenu-homework')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('编辑作业'));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const Key('assignmentTitleField')),
+      '完成实验报告（终版）',
+    );
+    await tester.tap(find.widgetWithText(FilledButton, '保存'));
+    await tester.pumpAndSettle();
+    expect(repository.assignments.single.title, '完成实验报告（终版）');
+
+    await tester.tap(find.byKey(const ValueKey('assignmentMenu-homework')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('删除作业'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, '删除'));
+    await tester.pumpAndSettle();
+
+    expect(repository.assignments, isEmpty);
+    expect(find.text('还没有待交作业'), findsOneWidget);
+  });
+
   testWidgets('navigation preserves schedule state between sections', (
     tester,
   ) async {
@@ -1172,6 +1485,49 @@ void main() {
     expect(planRepository.plans.single.completedAt, isNotNull);
     final title = tester.widget<Text>(find.text('复习计算机网络'));
     expect(title.style?.decoration, TextDecoration.lineThrough);
+  });
+
+  testWidgets('a plan can be edited and deleted', (tester) async {
+    final planRepository = FakePlanRepository()
+      ..plans.add(
+        Plan(
+          id: 'review',
+          title: '复习计算机网络',
+          notes: '',
+          startsAt: DateTime(2026, 10, 8, 20),
+          endsAt: DateTime(2026, 10, 8, 21),
+          reminderMinutes: null,
+          completedAt: null,
+        ),
+      );
+    await tester.pumpWidget(
+      testApp(FakeAcademicRepository(), planRepository: planRepository),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('安排'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('planMenu-review')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('编辑安排'));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const Key('planTitleField')),
+      '复习计算机网络（第二章）',
+    );
+    await tester.tap(find.widgetWithText(FilledButton, '保存'));
+    await tester.pumpAndSettle();
+    expect(planRepository.plans.single.title, '复习计算机网络（第二章）');
+
+    await tester.tap(find.byKey(const ValueKey('planMenu-review')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('删除安排'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, '删除'));
+    await tester.pumpAndSettle();
+
+    expect(planRepository.plans, isEmpty);
+    expect(find.text('还没有自定义安排'), findsOneWidget);
   });
 
   testWidgets('registration asks for an email and an invite code', (
@@ -1658,6 +2014,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('communityNavigationDestination')));
     await tester.pumpAndSettle();
+    expect(find.textContaining('请勿发布私人联系方式'), findsNothing);
     await tester.tap(find.byKey(const Key('addForumPostButton')));
     await tester.pumpAndSettle();
     await tester.enterText(

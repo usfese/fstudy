@@ -111,8 +111,17 @@ abstract interface class AcademicRepository {
   Future<void> createCourse({
     required String name,
     required String? teacher,
-    required CourseMeeting meeting,
+    required List<CourseMeeting> meetings,
   });
+  Future<void> updateCourse({
+    required String id,
+    required String name,
+    required String? teacher,
+    required String color,
+    required List<CourseMeeting> meetings,
+  });
+  Future<void> deleteCourse(String id);
+  Future<void> clearCourses();
   Future<List<Assignment>> listAssignments();
   Future<void> createAssignment({
     required String title,
@@ -120,6 +129,14 @@ abstract interface class AcademicRepository {
     required String? courseId,
     required DateTime? dueAt,
   });
+  Future<void> updateAssignment({
+    required String id,
+    required String title,
+    required String notes,
+    required String? courseId,
+    required DateTime? dueAt,
+  });
+  Future<void> deleteAssignment(String id);
   Future<void> setAssignmentCompleted(String id, bool completed);
 }
 
@@ -176,7 +193,7 @@ class DioAcademicRepository implements AcademicRepository {
   Future<void> createCourse({
     required String name,
     required String? teacher,
-    required CourseMeeting meeting,
+    required List<CourseMeeting> meetings,
   }) async {
     await _request(
       () => _dio.post<Map<String, dynamic>>(
@@ -185,23 +202,54 @@ class DioAcademicRepository implements AcademicRepository {
           'name': name,
           'teacher': teacher,
           'color': '#3559C7',
-          'meetings': [
-            {
-              'weekday': meeting.weekday,
-              'startMinute': meeting.startMinute,
-              'endMinute': meeting.endMinute,
-              'startWeek': meeting.startWeek,
-              'endWeek': meeting.endWeek,
-              'weekParity': meeting.weekParity,
-              'campus': meeting.campus,
-              'building': meeting.building,
-              'room': meeting.room,
-            },
-          ],
+          'meetings': meetings.map(_meetingJson).toList(),
         },
       ),
     );
   }
+
+  @override
+  Future<void> updateCourse({
+    required String id,
+    required String name,
+    required String? teacher,
+    required String color,
+    required List<CourseMeeting> meetings,
+  }) async {
+    await _request(
+      () => _dio.put<Map<String, dynamic>>(
+        '/v1/courses/$id',
+        data: {
+          'name': name,
+          'teacher': teacher,
+          'color': color,
+          'meetings': meetings.map(_meetingJson).toList(),
+        },
+      ),
+    );
+  }
+
+  @override
+  Future<void> deleteCourse(String id) async {
+    await _request(() => _dio.delete<Map<String, dynamic>>('/v1/courses/$id'));
+  }
+
+  @override
+  Future<void> clearCourses() async {
+    await _request(() => _dio.delete<Map<String, dynamic>>('/v1/courses'));
+  }
+
+  Map<String, dynamic> _meetingJson(CourseMeeting meeting) => {
+    'weekday': meeting.weekday,
+    'startMinute': meeting.startMinute,
+    'endMinute': meeting.endMinute,
+    'startWeek': meeting.startWeek,
+    'endWeek': meeting.endWeek,
+    'weekParity': meeting.weekParity,
+    'campus': meeting.campus,
+    'building': meeting.building,
+    'room': meeting.room,
+  };
 
   @override
   Future<List<Assignment>> listAssignments() async {
@@ -230,6 +278,34 @@ class DioAcademicRepository implements AcademicRepository {
           'dueAt': dueAt?.toUtc().toIso8601String(),
         },
       ),
+    );
+  }
+
+  @override
+  Future<void> updateAssignment({
+    required String id,
+    required String title,
+    required String notes,
+    required String? courseId,
+    required DateTime? dueAt,
+  }) async {
+    await _request(
+      () => _dio.put<Map<String, dynamic>>(
+        '/v1/assignments/$id',
+        data: {
+          'title': title,
+          'notes': notes,
+          'courseId': courseId,
+          'dueAt': dueAt?.toUtc().toIso8601String(),
+        },
+      ),
+    );
+  }
+
+  @override
+  Future<void> deleteAssignment(String id) async {
+    await _request(
+      () => _dio.delete<Map<String, dynamic>>('/v1/assignments/$id'),
     );
   }
 

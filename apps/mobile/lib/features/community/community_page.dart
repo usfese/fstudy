@@ -103,7 +103,7 @@ class _ForumPageState extends State<ForumPage> {
                           ?.copyWith(fontWeight: FontWeight.w700),
                     ),
                     const SizedBox(height: 6),
-                    const Text('公开交流课程、校园生活与经验；请勿发布私人联系方式。'),
+                    const Text('公开交流课程、校园生活与经验。'),
                   ],
                 ),
               ),

@@ -36,6 +36,40 @@ export class AssignmentService {
     return { id };
   }
 
+  async update(
+    userId: string,
+    assignmentId: string,
+    input: { courseId: string | null; title: string; notes: string; dueAt: string | null },
+  ) {
+    if (input.courseId !== null) {
+      const course = await this.database.execute<{ id: string }>({
+        sql: 'SELECT id FROM courses WHERE id = ? AND user_id = ?',
+        params: [input.courseId, userId],
+      });
+      if (course.rows.length === 0) {
+        throw new DomainError('course_not_found', '课程不存在', 404);
+      }
+    }
+    const result = await this.database.execute({
+      sql: `UPDATE assignments SET course_id = ?, title = ?, notes = ?, due_at = ?
+            WHERE id = ? AND user_id = ?`,
+      params: [input.courseId, input.title, input.notes, input.dueAt, assignmentId, userId],
+    });
+    if (result.changes === 0) {
+      throw new DomainError('assignment_not_found', '作业不存在', 404);
+    }
+  }
+
+  async delete(userId: string, assignmentId: string) {
+    const result = await this.database.execute({
+      sql: 'DELETE FROM assignments WHERE id = ? AND user_id = ?',
+      params: [assignmentId, userId],
+    });
+    if (result.changes === 0) {
+      throw new DomainError('assignment_not_found', '作业不存在', 404);
+    }
+  }
+
   async list(userId: string) {
     const result = await this.database.execute<AssignmentRow>({
       sql: `SELECT id, course_id, title, notes, due_at, completed_at, created_at

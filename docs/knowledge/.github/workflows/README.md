@@ -28,7 +28,7 @@
 | 依赖 | `flutter pub get`（`apps/mobile`） | |
 | 格式 | `dart format --output=none --set-exit-if-changed lib test` | 格式不符即失败 |
 | 分析 | `flutter analyze` | |
-| 测试 | `flutter test` | 39 个测试（33 个 widget/行为 + 6 个会话持久化单元测试） |
+| 测试 | `flutter test` | 50 个测试（40 个 widget/行为 + 4 个固定节次/短期输入单元测试 + 6 个会话持久化单元测试） |
 | Web 构建 | `flutter build web --release` | 产物 `apps/mobile/build/web` |
 
 ## 不在 CI 中的内容

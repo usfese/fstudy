@@ -10,7 +10,7 @@
 | --- | --- | --- | --- |
 | `auth/` | `auth_page.dart`（`AuthPage`） | `auth_repository.dart`（`AuthRepository` / `DioAuthRepository`） | 认证相关，见下 |
 | `home/` | `home_page.dart`（`HomePage`） | 无 | 无，提供课表与作业入口卡片 |
-| `academic/` | `courses_page.dart`、`assignments_page.dart` | `academic_repository.dart` | `/v1/me/academic-settings`、`/v1/courses`、`/v1/assignments` |
+| `academic/` | `courses_page.dart`、`assignments_page.dart`、`class_periods.dart`、`recent_inputs.dart` | `academic_repository.dart` | `/v1/me/academic-settings`、`/v1/courses`、`/v1/courses/:id`、`/v1/assignments`、`/v1/assignments/:id` |
 | `plans/` | `plans_page.dart` | `plan_repository.dart` | `/v1/plans` |
 | `profile/` | `profile_page.dart` | `profile_repository.dart` | `/v1/me` |
 | `social/` | `discover_page.dart`、`friends_page.dart`、`availability_page.dart`、`tag_settings_page.dart` | `social_repository.dart` | `/v1/tags`、`/v1/me/tags`、`/v1/discover`、`/v1/friend-requests`、`/v1/friends`、`/v1/availability`、`/v1/availability-invites` |
@@ -47,24 +47,27 @@ API 地址：`String.fromEnvironment('API_BASE_URL')`，默认 Web `http://127.0
 ## academic（课表与作业）
 
 ### 页面
-- `CoursesPage`：周视图（`_WeeklySchedule`）、课程列表（`_CourseList`）、学期设置（`_SemesterSettings`，选择第一周起始日期，须为周一）、课程对话框（`_CourseDialog`，支持多个上课时间段、单双周）。
-- `AssignmentsPage`：作业列表与新增对话框（`_AssignmentDialog`），可关联课程，可切换完成状态。
+- `CoursesPage`：周视图（`_WeeklySchedule`）、课程列表（`_CourseList`）、学期设置（`_SemesterSettings`，选择第一周起始日期，须为周一）、课程对话框（`_CourseDialog`，支持多个上课时间段、单双周）。周视图按星期、开始分钟、课程名排序，与添加顺序无关；课程卡片提供编辑/删除菜单。右上角“更多”菜单中有清空全部课程入口，需在确认框中输入“清空”后才可执行。
+- `AssignmentsPage`：作业列表、新增/编辑对话框（`_AssignmentDialog`），可关联课程，可切换完成状态；每项有编辑/删除菜单。
+- `class_periods.dart`：固定 14 节作息表与辅助函数。课程时间不再手输，而是多选节次；连续节次会自动合并为一个上课时间段，午休间隙保持拆分。
+- `recent_inputs.dart`：本次会话内的同类输入短期记忆（如课程名、教师、教室、作业标题、安排标题），在输入框中提供历史值建议；不持久化，退出登录时清空。
 
 ### 仓库（`AcademicRepository`）
 
 | 方法 | 接口 |
 | --- | --- |
 | `getSemesterStartDate()` / `setSemesterStartDate(date)` | `GET`/`PUT /v1/me/academic-settings` |
-| `listCourses()` / `createCourse(...)` | `GET`/`POST /v1/courses` |
-| `listAssignments()` / `createAssignment(...)` | `GET`/`POST /v1/assignments` |
-| `setAssignmentCompleted(id, completed)` | `PATCH /v1/assignments/:id/completion` |
+| `listCourses()` / `createCourse(...)` / `updateCourse(...)` | `GET`/`POST /v1/courses`、`PUT /v1/courses/:id` |
+| `deleteCourse(id)` / `clearCourses()` | `DELETE /v1/courses/:id`、`DELETE /v1/courses` |
+| `listAssignments()` / `createAssignment(...)` / `updateAssignment(...)` | `GET`/`POST /v1/assignments`、`PUT /v1/assignments/:id` |
+| `deleteAssignment(id)` / `setAssignmentCompleted(id, completed)` | `DELETE /v1/assignments/:id`、`PATCH /v1/assignments/:id/completion` |
 
 ---
 
 ## plans（自定义安排）
 
-- `PlansPage`：列表与新增（`_PlanDialog`），支持提醒分钟数（可空）。
-- `PlanRepository`：`listPlans()`、`createPlan(...)`、`setPlanCompleted(id, completed)`，对应 `/v1/plans` 与 `/v1/plans/:id/completion`。
+- `PlansPage`：列表、新增/编辑（`_PlanDialog`），支持提醒分钟数（可空）；每项有编辑/删除菜单。
+- `PlanRepository`：`listPlans()`、`createPlan(...)`、`updatePlan(...)`、`deletePlan(id)`、`setPlanCompleted(id, completed)`，对应 `/v1/plans`、`/v1/plans/:id` 与 `/v1/plans/:id/completion`。
 
 客户端目前只保存提醒设置，系统通知推送尚未实现（`AGENT.md` 规定 Android 通知暂缓）。
 
@@ -155,16 +158,18 @@ API 地址：`String.fromEnvironment('API_BASE_URL')`，默认 Web `http://127.0
 
 ## 测试覆盖
 
-`apps/mobile/test/widget_test.dart` 包含 33 个组件/行为测试，`apps/mobile/test/auth_repository_test.dart` 包含 6 个会话持久化单元测试。测试使用假仓库或假 Dio 适配器，不发起真实网络请求。测试名称覆盖了以下流程：
+`apps/mobile/test/widget_test.dart` 包含 40 个组件/行为测试，`apps/mobile/test/class_periods_test.dart` 包含 4 个固定节次与短期输入记忆单元测试，`apps/mobile/test/auth_repository_test.dart` 包含 6 个会话持久化单元测试。测试使用假仓库或假 Dio 适配器，不发起真实网络请求。测试名称覆盖了以下流程：
 
 - 未登录时显示登录页，退出登录后返回登录页
 - 深色模式设置、通知铃铛打开收件箱并标记已读
 - 课程、作业、安排的创建后即时显示，作业完成状态即时更新
+- 课程、作业、安排的编辑与删除；清空课表需输入确认词
+- 固定节次多选、连续节次合并、周视图按时间排序
 - 课表周视图按单双周过滤、设置学期起始日
 - 资料与隐私设置保存、标签保存
 - 发现页展示、发送并接受好友请求、共同空闲查询与邀请接受
 - 项目发布、申请、项目负责人接受申请
-- 论坛发帖、公开回复、举报帖子
+- 论坛发帖、公开回复、举报帖子；讨论区不再显示私人联系方式提示
 - 注册时填写邮箱与邀请码并提交（`registration asks for an email and an invite code`）
 - 个人页生成邀请码并显示剩余额度（`profile can generate an invite code and shows the remaining quota`）
 - 登录会话持久化：登录写入令牌与用户快照；网络中断时保留缓存登录；仅 401 清除本地会话；登出清除本地文件

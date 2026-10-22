@@ -101,8 +101,13 @@
 | --- | --- | --- | --- |
 | GET | `/v1/courses` | — | `{ courses: Course[] }` |
 | POST | `/v1/courses` | `CourseSchema`：`name` (1–80)、`teacher?` (≤50)、`color` (`#RRGGBB`，默认 `#4F46E5`)、`meetings[]` (1–10 项) | 201 `{ course: { id } }` |
+| PUT | `/v1/courses/:id` | 同 `CourseSchema`，全量替换课程与 `meetings[]` | `{ ok: true }`；不存在或不属于当前用户时 404 `course_not_found` |
+| DELETE | `/v1/courses/:id` | — | `{ ok: true }`；不存在或不属于当前用户时 404 `course_not_found` |
+| DELETE | `/v1/courses` | — | `{ ok: true }`，清空当前用户全部课程与上课时间（作业保留，`course_id` 置空） |
 | GET | `/v1/assignments` | — | `{ assignments: Assignment[] }` |
 | POST | `/v1/assignments` | `AssignmentSchema`：`courseId?` (uuid)、`title` (1–100)、`notes` (≤2000)、`dueAt?` (ISO 带时区) | 201 `{ assignment: { id } }` |
+| PUT | `/v1/assignments/:id` | 同 `AssignmentSchema`，全量更新 | `{ ok: true }`；不存在或不属于当前用户时 404 `assignment_not_found` |
+| DELETE | `/v1/assignments/:id` | — | `{ ok: true }`；不存在或不属于当前用户时 404 `assignment_not_found` |
 | PATCH | `/v1/assignments/:id/completion` | `{ completed: boolean }` | `{ ok: true }`；不存在 404 `assignment_not_found` |
 
 `CourseSchema.meetings[]` 单项：
@@ -121,6 +126,8 @@
 | --- | --- | --- | --- |
 | GET | `/v1/plans` | — | `{ plans: Plan[] }` |
 | POST | `/v1/plans` | `PlanSchema`：`title` (1–100)、`notes` (≤2000)、`startsAt`、`endsAt`（ISO 带时区，结束晚于开始）、`reminderMinutes?` (0–10080) | 201 `{ plan: { id } }` |
+| PUT | `/v1/plans/:id` | 同 `PlanSchema`，全量更新 | `{ ok: true }`；不存在或不属于当前用户时 404 `plan_not_found` |
+| DELETE | `/v1/plans/:id` | — | `{ ok: true }`；不存在或不属于当前用户时 404 `plan_not_found` |
 | PATCH | `/v1/plans/:id/completion` | `{ completed: boolean }` | `{ ok: true }`；不存在或不属于当前用户时 404 `plan_not_found` |
 
 ### 发现与好友

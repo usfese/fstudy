@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'plan_repository.dart';
+import '../academic/recent_inputs.dart';
 
 class PlansPage extends StatefulWidget {
   const PlansPage({required this.repository, super.key});
@@ -30,6 +31,58 @@ class _PlansPageState extends State<PlansPage> {
       setState(() {
         _reload();
       });
+    }
+  }
+
+  Future<void> _edit(Plan plan) async {
+    final updated = await showDialog<bool>(
+      context: context,
+      builder: (_) => _PlanDialog(repository: widget.repository, plan: plan),
+    );
+    if (updated == true && mounted) {
+      setState(() {
+        _reload();
+      });
+    }
+  }
+
+  Future<void> _delete(Plan plan) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('删除安排？'),
+        content: Text('将删除“${plan.title}”，操作不可恢复。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(dialogContext).colorScheme.error,
+              foregroundColor: Theme.of(dialogContext).colorScheme.onError,
+            ),
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('删除'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    try {
+      await widget.repository.deletePlan(plan.id);
+      if (mounted) {
+        setState(() {
+          _reload();
+        });
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text('安排已删除')));
+      }
+    } on PlanFailure catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(error.message)));
+      }
     }
   }
 
@@ -117,6 +170,18 @@ class _PlansPageState extends State<PlansPage> {
                     ].join(' · '),
                   ),
                   controlAffinity: ListTileControlAffinity.leading,
+                  secondary: PopupMenuButton<String>(
+                    key: ValueKey('planMenu-${plan.id}'),
+                    tooltip: '安排操作',
+                    onSelected: (value) {
+                      if (value == 'edit') _edit(plan);
+                      if (value == 'delete') _delete(plan);
+                    },
+                    itemBuilder: (_) => const [
+                      PopupMenuItem(value: 'edit', child: Text('编辑安排')),
+                      PopupMenuItem(value: 'delete', child: Text('删除安排')),
+                    ],
+                  ),
                 ),
               );
             },
@@ -128,8 +193,9 @@ class _PlansPageState extends State<PlansPage> {
 }
 
 class _PlanDialog extends StatefulWidget {
-  const _PlanDialog({required this.repository});
+  const _PlanDialog({required this.repository, this.plan});
   final PlanRepository repository;
+  final Plan? plan;
 
   @override
   State<_PlanDialog> createState() => _PlanDialogState();
@@ -145,9 +211,20 @@ class _PlanDialogState extends State<_PlanDialog> {
   bool _saving = false;
   String? _error;
 
+  bool get _editing => widget.plan != null;
+
   @override
   void initState() {
     super.initState();
+    final plan = widget.plan;
+    if (plan != null) {
+      _title.text = plan.title;
+      _notes.text = plan.notes;
+      _startsAt = plan.startsAt.toLocal();
+      _endsAt = plan.endsAt.toLocal();
+      _reminderMinutes = plan.reminderMinutes;
+      return;
+    }
     final now = DateTime.now();
     _startsAt = DateTime(now.year, now.month, now.day, now.hour + 1);
     _endsAt = _startsAt.add(const Duration(hours: 1));
@@ -187,13 +264,26 @@ class _PlanDialogState extends State<_PlanDialog> {
       _error = null;
     });
     try {
-      await widget.repository.createPlan(
-        title: _title.text.trim(),
-        notes: _notes.text.trim(),
-        startsAt: _startsAt,
-        endsAt: _endsAt,
-        reminderMinutes: _reminderMinutes,
-      );
+      if (_editing) {
+        await widget.repository.updatePlan(
+          id: widget.plan!.id,
+          title: _title.text.trim(),
+          notes: _notes.text.trim(),
+          startsAt: _startsAt,
+          endsAt: _endsAt,
+          reminderMinutes: _reminderMinutes,
+        );
+      } else {
+        await widget.repository.createPlan(
+          title: _title.text.trim(),
+          notes: _notes.text.trim(),
+          startsAt: _startsAt,
+          endsAt: _endsAt,
+          reminderMinutes: _reminderMinutes,
+        );
+      }
+      RecentInputs.remember('plan.title', _title.text);
+      RecentInputs.remember('plan.notes', _notes.text);
       if (mounted) Navigator.pop(context, true);
     } on PlanFailure catch (error) {
       if (mounted) setState(() => _error = error.message);
@@ -205,7 +295,7 @@ class _PlanDialogState extends State<_PlanDialog> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: const Text('添加安排'),
+      title: Text(_editing ? '编辑安排' : '添加安排'),
       content: SizedBox(
         width: 440,
         child: Form(
@@ -214,15 +304,17 @@ class _PlanDialogState extends State<_PlanDialog> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                TextFormField(
-                  key: const Key('planTitleField'),
+                RecentInputField(
+                  fieldKey: const Key('planTitleField'),
+                  memoryKey: 'plan.title',
                   controller: _title,
                   validator: (value) =>
                       value == null || value.trim().isEmpty ? '请填写安排标题' : null,
                   decoration: const InputDecoration(labelText: '安排标题'),
                 ),
                 const SizedBox(height: 12),
-                TextFormField(
+                RecentInputField(
+                  memoryKey: 'plan.notes',
                   controller: _notes,
                   maxLines: 3,
                   decoration: const InputDecoration(labelText: '备注（可选）'),

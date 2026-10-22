@@ -66,6 +66,49 @@ export class PlanService {
     return { id };
   }
 
+  async update(
+    userId: string,
+    planId: string,
+    input: {
+      title: string;
+      notes: string;
+      startsAt: string;
+      endsAt: string;
+      reminderMinutes: number | null;
+    },
+  ) {
+    if (new Date(input.endsAt) <= new Date(input.startsAt)) {
+      throw new DomainError('invalid_plan_time', '结束时间必须晚于开始时间', 400);
+    }
+    const result = await this.database.execute({
+      sql: `UPDATE plans
+            SET title = ?, notes = ?, starts_at = ?, ends_at = ?, reminder_minutes = ?
+            WHERE id = ? AND user_id = ?`,
+      params: [
+        input.title,
+        input.notes,
+        input.startsAt,
+        input.endsAt,
+        input.reminderMinutes,
+        planId,
+        userId,
+      ],
+    });
+    if (result.changes === 0) {
+      throw new DomainError('plan_not_found', '安排不存在', 404);
+    }
+  }
+
+  async delete(userId: string, planId: string) {
+    const result = await this.database.execute({
+      sql: 'DELETE FROM plans WHERE id = ? AND user_id = ?',
+      params: [planId, userId],
+    });
+    if (result.changes === 0) {
+      throw new DomainError('plan_not_found', '安排不存在', 404);
+    }
+  }
+
   async setCompleted(userId: string, planId: string, completed: boolean) {
     const result = await this.database.execute({
       sql: 'UPDATE plans SET completed_at = ? WHERE id = ? AND user_id = ?',

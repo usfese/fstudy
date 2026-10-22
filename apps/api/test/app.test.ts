@@ -396,6 +396,129 @@ describe('FStudy API', () => {
     });
   });
 
+  it('edits, deletes and clears courses with ownership checks', async () => {
+    const app = await testApp();
+    const owner = await register(app, { username: '20260401' });
+    const other = await register(app, { username: '20260402' });
+    const headers = (token: string) => ({
+      authorization: `Bearer ${token}`,
+      'content-type': 'application/json',
+    });
+    const courseInput = {
+      name: '计算机网络',
+      teacher: '张老师',
+      color: '#3366FF',
+      meetings: [{
+        weekday: 1, startMinute: 480, endMinute: 570, startWeek: 1, endWeek: 16,
+        weekParity: 'all', campus: null, building: null, room: 'S2-101',
+      }],
+    };
+    const created = await app.request('/v1/courses', {
+      method: 'POST', headers: headers(owner.accessToken), body: JSON.stringify(courseInput),
+    });
+    const { course } = await created.json() as { course: { id: string } };
+
+    const updated = await app.request(`/v1/courses/${course.id}`, {
+      method: 'PUT', headers: headers(owner.accessToken),
+      body: JSON.stringify({
+        ...courseInput,
+        name: '计算机网络（实验）',
+        meetings: [{
+          weekday: 2, startMinute: 600, endMinute: 635, startWeek: 3, endWeek: 12,
+          weekParity: 'odd', campus: null, building: null, room: 'S3-202',
+        }],
+      }),
+    });
+    expect(updated.status).toBe(200);
+    expect(await (await app.request('/v1/courses', { headers: headers(owner.accessToken) })).json())
+      .toMatchObject({
+        courses: [{
+          name: '计算机网络（实验）',
+          meetings: [{ weekday: 2, startMinute: 600, room: 'S3-202' }],
+        }],
+      });
+
+    const foreignDelete = await app.request(`/v1/courses/${course.id}`, {
+      method: 'DELETE', headers: headers(other.accessToken),
+    });
+    expect(foreignDelete.status).toBe(404);
+
+    const deleted = await app.request(`/v1/courses/${course.id}`, {
+      method: 'DELETE', headers: headers(owner.accessToken),
+    });
+    expect(deleted.status).toBe(200);
+
+    const recreated = await app.request('/v1/courses', {
+      method: 'POST', headers: headers(owner.accessToken), body: JSON.stringify(courseInput),
+    });
+    const recreatedCourse = ((await recreated.json()) as { course: { id: string } }).course;
+    await app.request('/v1/assignments', {
+      method: 'POST', headers: headers(owner.accessToken),
+      body: JSON.stringify({
+        title: '课程作业', notes: '', courseId: recreatedCourse.id, dueAt: null,
+      }),
+    });
+    const cleared = await app.request('/v1/courses', {
+      method: 'DELETE', headers: headers(owner.accessToken),
+    });
+    expect(cleared.status).toBe(200);
+    expect(await (await app.request('/v1/courses', { headers: headers(owner.accessToken) })).json())
+      .toEqual({ courses: [] });
+    expect(await (await app.request('/v1/assignments', { headers: headers(owner.accessToken) })).json())
+      .toMatchObject({ assignments: [{ title: '课程作业', courseId: null }] });
+  });
+
+  it('edits and deletes assignments and plans', async () => {
+    const app = await testApp();
+    const { accessToken } = await register(app);
+    const headers = { authorization: `Bearer ${accessToken}`, 'content-type': 'application/json' };
+    const assignment = await app.request('/v1/assignments', {
+      method: 'POST', headers,
+      body: JSON.stringify({ title: '实验报告', notes: '第一版', courseId: null, dueAt: null }),
+    });
+    const assignmentId = ((await assignment.json()) as { assignment: { id: string } }).assignment.id;
+    const updatedAssignment = await app.request(`/v1/assignments/${assignmentId}`, {
+      method: 'PUT', headers,
+      body: JSON.stringify({
+        title: '实验报告（终版）', notes: '已更新', courseId: null,
+        dueAt: '2026-11-01T12:00:00.000Z',
+      }),
+    });
+    expect(updatedAssignment.status).toBe(200);
+    expect(await (await app.request('/v1/assignments', { headers })).json()).toMatchObject({
+      assignments: [{ title: '实验报告（终版）', notes: '已更新' }],
+    });
+    expect((await app.request(`/v1/assignments/${assignmentId}`, {
+      method: 'DELETE', headers,
+    })).status).toBe(200);
+    expect(await (await app.request('/v1/assignments', { headers })).json())
+      .toEqual({ assignments: [] });
+
+    const plan = await app.request('/v1/plans', {
+      method: 'POST', headers,
+      body: JSON.stringify({
+        title: '复习', notes: '', startsAt: '2026-11-01T10:00:00.000Z',
+        endsAt: '2026-11-01T11:00:00.000Z', reminderMinutes: null,
+      }),
+    });
+    const planId = ((await plan.json()) as { plan: { id: string } }).plan.id;
+    const updatedPlan = await app.request(`/v1/plans/${planId}`, {
+      method: 'PUT', headers,
+      body: JSON.stringify({
+        title: '复习第二章', notes: '重点', startsAt: '2026-11-01T10:30:00.000Z',
+        endsAt: '2026-11-01T12:00:00.000Z', reminderMinutes: 15,
+      }),
+    });
+    expect(updatedPlan.status).toBe(200);
+    expect(await (await app.request('/v1/plans', { headers })).json()).toMatchObject({
+      plans: [{ title: '复习第二章', reminderMinutes: 15 }],
+    });
+    expect((await app.request(`/v1/plans/${planId}`, {
+      method: 'DELETE', headers,
+    })).status).toBe(200);
+    expect(await (await app.request('/v1/plans', { headers })).json()).toEqual({ plans: [] });
+  });
+
   it('persists a per-user semester start date and requires Monday', async () => {
     const app = await testApp();
     const student = await register(app, { username: '20260301' });

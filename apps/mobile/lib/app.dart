@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 import 'features/academic/academic_repository.dart';
 import 'features/academic/assignments_page.dart';
 import 'features/academic/courses_page.dart';
+import 'features/academic/recent_inputs.dart';
 import 'features/auth/auth_page.dart';
 import 'features/auth/auth_repository.dart';
 import 'features/community/community_page.dart';
@@ -329,6 +330,7 @@ class _FStudyAppState extends State<FStudyApp> {
 
   Future<void> _logout() async {
     await widget.repository.logout();
+    RecentInputs.clear();
     if (!mounted) return;
     setState(() => _setSession(null));
     _router.go('/login');

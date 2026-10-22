@@ -69,11 +69,18 @@ const OPENAPI_DOCUMENT = {
       post: { summary: '创建或复用全局标签（需要登录）' },
     },
     '/v1/me/tags': { get: { summary: '读取当前用户标签' }, put: { summary: '替换当前用户标签' } },
-    '/v1/courses': { get: { summary: '读取课表' }, post: { summary: '添加课程' } },
+    '/v1/courses': {
+      get: { summary: '读取课表' },
+      post: { summary: '添加课程' },
+      delete: { summary: '清空当前用户全部课程' },
+    },
+    '/v1/courses/{id}': { put: { summary: '编辑课程' }, delete: { summary: '删除课程' } },
     '/v1/me/academic-settings': { get: { summary: '读取学期设置' }, put: { summary: '设置学期第一周日期' } },
     '/v1/assignments': { get: { summary: '读取作业' }, post: { summary: '添加作业' } },
+    '/v1/assignments/{id}': { put: { summary: '编辑作业' }, delete: { summary: '删除作业' } },
     '/v1/assignments/{id}/completion': { patch: { summary: '标记作业完成或未完成' } },
     '/v1/plans': { get: { summary: '读取自定义安排' }, post: { summary: '添加自定义安排' } },
+    '/v1/plans/{id}': { put: { summary: '编辑自定义安排' }, delete: { summary: '删除自定义安排' } },
     '/v1/plans/{id}/completion': { patch: { summary: '标记自定义安排完成或未完成' } },
     '/v1/discover': { get: { summary: '发现可推荐的同学' } },
     '/v1/friends': { get: { summary: '读取好友及请求' } },
@@ -523,6 +530,25 @@ export function createApp(dependencies: RuntimeDependencies) {
     return context.json({ course }, 201);
   });
 
+  app.put('/v1/courses/:id', zValidator('json', CourseSchema), async (context) => {
+    await scheduleService.updateCourse(
+      context.get('userId'),
+      context.req.param('id'),
+      context.req.valid('json'),
+    );
+    return context.json({ ok: true }, 200);
+  });
+
+  app.delete('/v1/courses', async (context) => {
+    await scheduleService.clearCourses(context.get('userId'));
+    return context.json({ ok: true }, 200);
+  });
+
+  app.delete('/v1/courses/:id', async (context) => {
+    await scheduleService.deleteCourse(context.get('userId'), context.req.param('id'));
+    return context.json({ ok: true }, 200);
+  });
+
   app.get('/v1/assignments', async (context) => {
     return context.json({ assignments: await assignmentService.list(context.get('userId')) }, 200);
   });
@@ -530,6 +556,20 @@ export function createApp(dependencies: RuntimeDependencies) {
   app.post('/v1/assignments', zValidator('json', AssignmentSchema), async (context) => {
     const assignment = await assignmentService.create(context.get('userId'), context.req.valid('json'));
     return context.json({ assignment }, 201);
+  });
+
+  app.put('/v1/assignments/:id', zValidator('json', AssignmentSchema), async (context) => {
+    await assignmentService.update(
+      context.get('userId'),
+      context.req.param('id'),
+      context.req.valid('json'),
+    );
+    return context.json({ ok: true }, 200);
+  });
+
+  app.delete('/v1/assignments/:id', async (context) => {
+    await assignmentService.delete(context.get('userId'), context.req.param('id'));
+    return context.json({ ok: true }, 200);
   });
 
   app.patch(
@@ -553,6 +593,20 @@ export function createApp(dependencies: RuntimeDependencies) {
   app.post('/v1/plans', zValidator('json', PlanSchema), async (context) => {
     const plan = await planService.create(context.get('userId'), context.req.valid('json'));
     return context.json({ plan }, 201);
+  });
+
+  app.put('/v1/plans/:id', zValidator('json', PlanSchema), async (context) => {
+    await planService.update(
+      context.get('userId'),
+      context.req.param('id'),
+      context.req.valid('json'),
+    );
+    return context.json({ ok: true }, 200);
+  });
+
+  app.delete('/v1/plans/:id', async (context) => {
+    await planService.delete(context.get('userId'), context.req.param('id'));
+    return context.json({ ok: true }, 200);
   });
 
   app.patch('/v1/plans/:id/completion', zValidator('json', CompletionSchema), async (context) => {

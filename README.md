@@ -94,7 +94,7 @@ python3 -m http.server 8081 --bind 127.0.0.1 --directory apps/admin
 - 认证：`POST /v1/auth/register`（需要邀请码与邮箱）、`/login`、`/logout`；北邮 CAS：`/v1/auth/cas/*`（浏览器登录，已关闭）；验证码路由已注释停用
 - 邀请码：`GET/POST /v1/me/invites`（每人每月 5 个）；运营：`POST /v1/admin/invites`
 - 个人资料与设置：`GET/PATCH /v1/me`、`GET/PUT /v1/me/academic-settings`、`GET/PUT /v1/me/tags`、`GET /v1/tags`（需要登录）
-- 课表与学习：`GET/POST /v1/courses`、`GET/POST /v1/assignments`、`PATCH /v1/assignments/:id/completion`、`GET/POST /v1/plans`、`PATCH /v1/plans/:id/completion`
+- 课表与学习：`GET/POST/DELETE /v1/courses`、`PUT/DELETE /v1/courses/:id`、`GET/POST /v1/assignments`、`PUT/DELETE /v1/assignments/:id`、`PATCH /v1/assignments/:id/completion`、`GET/POST /v1/plans`、`PUT/DELETE /v1/plans/:id`、`PATCH /v1/plans/:id/completion`
 - 社交：`GET /v1/discover`、`GET /v1/friends`、`POST /v1/friend-requests`、`PATCH /v1/friend-requests/:id`、`GET /v1/availability`、`GET/POST /v1/availability-invites`、`PATCH /v1/availability-invites/:id`
 - 组队：`GET/POST /v1/projects`、`PATCH /v1/projects/:id/status`、`POST /v1/projects/:id/applications`、`GET/PATCH /v1/project-applications[/:id]`
 - 讨论区：`GET/POST /v1/forum/posts`、`GET /v1/forum/posts/:id`、`POST /v1/forum/posts/:id/replies`

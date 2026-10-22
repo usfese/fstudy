@@ -48,17 +48,57 @@ export class ScheduleService {
         sql: 'INSERT INTO courses (id, user_id, name, teacher, color, created_at) VALUES (?, ?, ?, ?, ?, ?)',
         params: [courseId, userId, input.name, input.teacher, input.color, new Date().toISOString()],
       },
-      ...input.meetings.map((meeting) => ({
-        sql: `INSERT INTO course_meetings
-          (id, course_id, weekday, start_minute, end_minute, start_week, end_week, week_parity, campus, building, room)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        params: [
-          crypto.randomUUID(), courseId, meeting.weekday, meeting.startMinute, meeting.endMinute,
-          meeting.startWeek, meeting.endWeek, meeting.weekParity, meeting.campus, meeting.building, meeting.room,
-        ],
-      })),
+      ...this.meetingStatements(courseId, input.meetings),
     ]);
     return { id: courseId };
+  }
+
+  async updateCourse(userId: string, courseId: string, input: CourseInput) {
+    if (input.meetings.length === 0) throw new DomainError('meeting_required', '课程至少需要一个上课时间');
+    const existing = await this.database.execute<{ id: string }>({
+      sql: 'SELECT id FROM courses WHERE id = ? AND user_id = ?',
+      params: [courseId, userId],
+    });
+    if (existing.rows.length === 0) {
+      throw new DomainError('course_not_found', '课程不存在', 404);
+    }
+    await this.database.batch([
+      {
+        sql: 'UPDATE courses SET name = ?, teacher = ?, color = ? WHERE id = ? AND user_id = ?',
+        params: [input.name, input.teacher, input.color, courseId, userId],
+      },
+      { sql: 'DELETE FROM course_meetings WHERE course_id = ?', params: [courseId] },
+      ...this.meetingStatements(courseId, input.meetings),
+    ]);
+  }
+
+  async deleteCourse(userId: string, courseId: string) {
+    const result = await this.database.execute({
+      sql: 'DELETE FROM courses WHERE id = ? AND user_id = ?',
+      params: [courseId, userId],
+    });
+    if (result.changes === 0) {
+      throw new DomainError('course_not_found', '课程不存在', 404);
+    }
+  }
+
+  async clearCourses(userId: string) {
+    await this.database.execute({
+      sql: 'DELETE FROM courses WHERE user_id = ?',
+      params: [userId],
+    });
+  }
+
+  private meetingStatements(courseId: string, meetings: MeetingInput[]) {
+    return meetings.map((meeting) => ({
+      sql: `INSERT INTO course_meetings
+        (id, course_id, weekday, start_minute, end_minute, start_week, end_week, week_parity, campus, building, room)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      params: [
+        crypto.randomUUID(), courseId, meeting.weekday, meeting.startMinute, meeting.endMinute,
+        meeting.startWeek, meeting.endWeek, meeting.weekParity, meeting.campus, meeting.building, meeting.room,
+      ],
+    }));
   }
 
   async listCourses(userId: string) {

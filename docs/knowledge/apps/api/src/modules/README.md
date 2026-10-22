@@ -106,6 +106,9 @@
 ## schedule — `ScheduleService`
 
 - `createCourse(userId, input)`：必须至少一个 `meetings`（否则 400 `meeting_required`）。课程与各个时间段在一次 `batch` 中写入。返回 `{ id }`。
+- `updateCourse(userId, id, input)`：校验课程归属后，在同一 `batch` 中更新课程字段、删除旧 `meetings` 并写入新时间段；不存在或不属于当前用户时 404 `course_not_found`。
+- `deleteCourse(userId, id)`：删除课程（级联删除其 `course_meetings`）；不存在或不属于当前用户时 404。
+- `clearCourses(userId)`：清空当前用户全部课程。关联作业的 `course_id` 由外键 `ON DELETE SET NULL` 置空，作业本身保留。
 - `listCourses(userId)`：按课程聚合 `meetings`，返回 `Course[]`。
 
 时间规则在 Zod 层校验（见 `http/schemas.ts`）：`endMinute > startMinute`、`endWeek >= startWeek`、`weekParity` 取 `all/odd/even`。
@@ -117,6 +120,8 @@
 ## assignments — `AssignmentService`
 
 - `create(userId, input)`：`courseId` 若提供，必须属于当前用户，否则 404 `course_not_found`。返回 `{ id }`。
+- `update(userId, id, input)`：同样的课程归属校验；全量更新标题、备注、关联课程与截止时间，保留完成状态。不存在或不属于当前用户时 404 `assignment_not_found`。
+- `delete(userId, id)`：删除作业；不存在或不属于当前用户时 404。
 - `list(userId)`：按 `due_at` 排序。
 - `setCompleted(userId, id, completed)`：返回 `boolean`（是否命中）。路由层据此返回 404。
 
@@ -125,6 +130,8 @@
 ## plans — `PlanService`
 
 - `create`：校验 `endsAt > startsAt`（400 `invalid_plan_time`）。
+- `update`：同样的时间校验；全量更新标题、备注、开始/结束时间与提醒分钟数，保留完成状态。不存在或不属于当前用户时 404 `plan_not_found`。
+- `delete`：删除安排；不存在或不属于当前用户时 404。
 - `list`：按开始时间排序。
 - `setCompleted`：`completed_at` 置为当前时间或 `null`，不存在或不属于当前用户时 404 `plan_not_found`。
 

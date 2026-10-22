@@ -52,6 +52,15 @@ abstract interface class PlanRepository {
     required DateTime endsAt,
     required int? reminderMinutes,
   });
+  Future<void> updatePlan({
+    required String id,
+    required String title,
+    required String notes,
+    required DateTime startsAt,
+    required DateTime endsAt,
+    required int? reminderMinutes,
+  });
+  Future<void> deletePlan(String id);
   Future<void> setPlanCompleted(String id, bool completed);
 }
 
@@ -105,6 +114,34 @@ class DioPlanRepository implements PlanRepository {
         },
       ),
     );
+  }
+
+  @override
+  Future<void> updatePlan({
+    required String id,
+    required String title,
+    required String notes,
+    required DateTime startsAt,
+    required DateTime endsAt,
+    required int? reminderMinutes,
+  }) async {
+    await _request(
+      () => _dio.put<Map<String, dynamic>>(
+        '/v1/plans/$id',
+        data: {
+          'title': title,
+          'notes': notes,
+          'startsAt': startsAt.toUtc().toIso8601String(),
+          'endsAt': endsAt.toUtc().toIso8601String(),
+          'reminderMinutes': reminderMinutes,
+        },
+      ),
+    );
+  }
+
+  @override
+  Future<void> deletePlan(String id) async {
+    await _request(() => _dio.delete<Map<String, dynamic>>('/v1/plans/$id'));
   }
 
   @override

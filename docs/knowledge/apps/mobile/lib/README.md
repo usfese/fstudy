@@ -30,7 +30,7 @@ FStudyApp({
 
 每个工厂都是可选的：生产环境为 `null`，此时 `_setSession` 使用 `Dio*Repository(accessToken: session.accessToken)`；测试注入假仓库，因此 **widget 测试不发起真实网络请求**。
 
-会话切换统一由 `_setSession(AuthSession?)` 完成：会话为空时清空所有仓库和未读数；非空时重新构造仓库并刷新未读通知数。
+会话切换统一由 `_setSession(AuthSession?)` 完成：会话为空时清空所有仓库和未读数；非空时重新构造仓库并刷新未读通知数。退出登录时还会调用 `RecentInputs.clear()`，避免同一设备上的短期输入建议跨账号泄漏。
 
 ## 启动与会话恢复
 
