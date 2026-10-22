@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -29,6 +31,13 @@ class AuthUser {
   final String? username;
   final String displayName;
   final String? departmentId;
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'username': username,
+    'displayName': displayName,
+    'departmentId': departmentId,
+  };
 }
 
 class AuthSession {
@@ -53,6 +62,28 @@ class AuthFailure implements Exception {
 
   @override
   String toString() => message;
+}
+
+abstract interface class AuthStorage {
+  Future<String?> read(String key);
+  Future<void> write(String key, String value);
+  Future<void> delete(String key);
+}
+
+class SecureAuthStorage implements AuthStorage {
+  const SecureAuthStorage({this.storage = const FlutterSecureStorage()});
+
+  final FlutterSecureStorage storage;
+
+  @override
+  Future<String?> read(String key) => storage.read(key: key);
+
+  @override
+  Future<void> write(String key, String value) =>
+      storage.write(key: key, value: value);
+
+  @override
+  Future<void> delete(String key) => storage.delete(key: key);
 }
 
 abstract interface class AuthRepository {
@@ -99,7 +130,7 @@ abstract interface class AuthRepository {
 }
 
 class DioAuthRepository implements AuthRepository {
-  DioAuthRepository({Dio? dio, FlutterSecureStorage? storage})
+  DioAuthRepository({Dio? dio, AuthStorage? storage})
     : _dio =
           dio ??
           Dio(
@@ -112,17 +143,41 @@ class DioAuthRepository implements AuthRepository {
               headers: {'content-type': 'application/json'},
             ),
           ),
-      _storage = storage ?? const FlutterSecureStorage();
+      _storage = storage ?? const SecureAuthStorage();
 
   static const _tokenKey = 'fstudy_access_token';
+  static const _userKey = 'fstudy_access_user';
   final Dio _dio;
-  final FlutterSecureStorage _storage;
+  final AuthStorage _storage;
 
   @override
   Future<AuthSession?> restoreSession() async {
+    String? token;
+    AuthSession? cached;
     try {
-      final token = await _storage.read(key: _tokenKey);
-      if (token == null) return null;
+      token = await _storage.read(_tokenKey);
+      if (token == null) {
+        await _storage.delete(_userKey);
+        return null;
+      }
+      final cachedUser = await _storage.read(_userKey);
+      if (cachedUser != null) {
+        try {
+          cached = AuthSession(
+            accessToken: token,
+            user: AuthUser.fromJson(
+              jsonDecode(cachedUser) as Map<String, dynamic>,
+            ),
+          );
+        } catch (_) {
+          await _storage.delete(_userKey);
+        }
+      }
+    } catch (_) {
+      return null;
+    }
+
+    try {
       final response = await _dio.get<Map<String, dynamic>>(
         '/v1/me',
         options: Options(headers: {'authorization': 'Bearer $token'}),
@@ -130,10 +185,37 @@ class DioAuthRepository implements AuthRepository {
       final user = AuthUser.fromJson(
         response.data!['user'] as Map<String, dynamic>,
       );
-      return AuthSession(accessToken: token, user: user);
+      final session = AuthSession(accessToken: token, user: user);
+      await _writeSession(session);
+      return session;
+    } on DioException catch (error) {
+      // Only an explicit 401 means the session is gone. Network errors and
+      // 5xx responses during a deploy must not erase the local login state.
+      if (error.response?.statusCode == 401) {
+        await _clearSession();
+        return null;
+      }
+      return cached;
     } catch (_) {
-      await _storage.delete(key: _tokenKey);
-      return null;
+      return cached;
+    }
+  }
+
+  Future<void> _writeSession(AuthSession session) async {
+    await _storage.write(_userKey, jsonEncode(session.user.toJson()));
+    await _storage.write(_tokenKey, session.accessToken);
+  }
+
+  Future<void> _clearSession() async {
+    try {
+      await _storage.delete(_tokenKey);
+    } catch (_) {
+      // Best effort: a storage failure must not crash the app.
+    }
+    try {
+      await _storage.delete(_userKey);
+    } catch (_) {
+      // Best effort: a storage failure must not crash the app.
     }
   }
 
@@ -278,7 +360,7 @@ class DioAuthRepository implements AuthRepository {
         accessToken: data['accessToken'] as String,
         user: AuthUser.fromJson(data['user'] as Map<String, dynamic>),
       );
-      await _storage.write(key: _tokenKey, value: session.accessToken);
+      await _writeSession(session);
       return session;
     } on DioException catch (error) {
       final data = error.response?.data;
@@ -297,7 +379,7 @@ class DioAuthRepository implements AuthRepository {
 
   @override
   Future<void> logout() async {
-    final token = await _storage.read(key: _tokenKey);
+    final token = await _storage.read(_tokenKey);
     if (token != null) {
       try {
         await _dio.post<Map<String, dynamic>>(
@@ -308,6 +390,6 @@ class DioAuthRepository implements AuthRepository {
         // Local logout must still succeed when the server is unavailable.
       }
     }
-    await _storage.delete(key: _tokenKey);
+    await _clearSession();
   }
 }

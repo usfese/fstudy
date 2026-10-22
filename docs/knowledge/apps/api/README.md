@@ -42,7 +42,7 @@ apps/api/
 | `pnpm db:migrate:remote` | `wrangler d1 migrations apply fstudy --remote` |
 | `pnpm --filter @fstudy/api deploy` | `wrangler deploy`（**生产配置，禁止在未完成安全评审前执行**） |
 
-根 `package.json` 提供同名的转发脚本（`pnpm dev`、`pnpm check`、`pnpm test`、`pnpm build`、`pnpm db:migrate:*`）。
+根 `package.json` 提供同名转发脚本（`pnpm dev`、`pnpm check`、`pnpm test`、`pnpm build`、`pnpm db:migrate:*`）；根 `pnpm test` 先运行 API Vitest，再运行管理台请求行为测试。
 
 ## 环境变量与配置
 

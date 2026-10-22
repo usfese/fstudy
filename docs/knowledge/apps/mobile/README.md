@@ -8,6 +8,7 @@
 apps/mobile/
 ├── lib/                 应用源码 → lib/README.md、features/README.md
 ├── test/widget_test.dart  33 个组件/行为测试（使用假仓库）
+├── test/auth_repository_test.dart  6 个会话持久化单元测试（假 Dio 适配器 + 内存存储）
 ├── web/                 Web 入口与 PWA 资源（手写，需要关注）
 ├── android/             Android 平台工程（生成 + 少量配置，暂不构建）
 ├── ios/                 iOS 平台工程（保留结构，不构建）

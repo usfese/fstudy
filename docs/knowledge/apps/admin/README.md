@@ -7,7 +7,7 @@
 | 文件 | 说明 |
 | --- | --- |
 | `index.html` | 唯一页面，加载 `/style.css` 与 `/admin.js`（模块脚本）|
-| `admin.js` | 全部逻辑（约 310 行）：登录、页面路由、渲染、事件 |
+| `admin.js` | 全部逻辑（约 330 行）：登录、页面路由、渲染、事件 |
 | `style.css` | 样式（单行压缩） |
 
 ## 运行方式
@@ -47,12 +47,12 @@ window.FSTUDY_API_URL = 'https://api.example.com';
 
 - 令牌存于 `sessionStorage`（键 `fstudy_admin_token`），关闭标签页即失效；用户名存于 `fstudy_admin_username`。
 - 邀请码生成记录存于 `sessionStorage`（键 `fstudy_admin_invites`），只用于本次标签页内的复制；服务端只保存邀请码哈希，关闭标签页后无法再次显示原文。
-- `request()` 遇到 401（登录接口除外）即调用 `logoutLocal()` 清理本地状态。
+- `request()` 对所有 POST/PUT/PATCH 都发送 `content-type: application/json`，即使没有请求体（邀请码生成、退出登录）；遇到 401（登录接口除外）即调用 `logoutLocal()` 清理本地状态。
 - 所有动态数据经过 `esc()` 转义后再插入 HTML，防止 XSS。新增渲染逻辑时必须沿用该函数。
 - 管理员令牌有效期 8 天（服务端决定）。
 
 ## 维护注意
 
 - 页面切换通过 `activePage` 与 `renderPage()` 实现，没有路由库；新增页面需同时修改 `pages` 对象与 `renderPage` 的分支。
-- CI 只对 `admin.js` 做语法检查（`node --check apps/admin/admin.js`），没有 UI 测试。
+- CI 对 `admin.js` 做语法检查（`node --check apps/admin/admin.js`），并运行根目录 `tests/admin.test.mjs`。测试通过 Node `vm` 加载脚本，覆盖无请求体 POST/PATCH 的 JSON 头、GET 不携带 JSON 头以及 415 错误透传；命令为 `pnpm test:admin`（根 `pnpm test` 也会执行）。
 - `admin.js` 中大量使用内联 `data-*` 属性传参（如 `data-user`、`data-action`），后端校验是最终防线，前端不做权限判断。

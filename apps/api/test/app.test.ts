@@ -1215,4 +1215,34 @@ describe('FStudy API', () => {
     })).json() as { remainingThisMonth: number };
     expect(quota.remainingThisMonth).toBe(5);
   });
+
+  it('requires JSON content type for bodyless admin POSTs and logout', async () => {
+    const app = await testApp();
+    const login = await app.request('/v1/admin/auth/login', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ username: 'operator', password: 'a-very-long-test-admin-password' }),
+    });
+    const adminHeaders = { authorization: `Bearer ${((await login.json()) as { accessToken: string }).accessToken}` };
+
+    const missingContentType = await app.request('/v1/admin/invites', {
+      method: 'POST',
+      headers: adminHeaders,
+    });
+    expect(missingContentType.status).toBe(415);
+    expect(await missingContentType.json()).toMatchObject({
+      error: { code: 'unsupported_media_type', message: '请求必须使用 application/json' },
+    });
+
+    const issued = await app.request('/v1/admin/invites', {
+      method: 'POST',
+      headers: { ...adminHeaders, 'content-type': 'application/json' },
+    });
+    expect(issued.status).toBe(201);
+
+    const logout = await app.request('/v1/admin/auth/logout', {
+      method: 'POST',
+      headers: { ...adminHeaders, 'content-type': 'application/json' },
+    });
+    expect(logout.status).toBe(200);
+  });
 });

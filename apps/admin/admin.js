@@ -2,6 +2,7 @@ const API = window.FSTUDY_API_URL || `${window.location.protocol}//${window.loca
 const TOKEN_KEY = 'fstudy_admin_token';
 const USER_KEY = 'fstudy_admin_username';
 const INVITES_KEY = 'fstudy_admin_invites';
+const JSON_METHODS = new Set(['POST', 'PUT', 'PATCH']);
 const app = document.querySelector('#app');
 let token = sessionStorage.getItem(TOKEN_KEY);
 let username = sessionStorage.getItem(USER_KEY) || '';
@@ -24,10 +25,13 @@ function esc(value) {
 }
 
 async function request(path, options = {}) {
+  const method = (options.method || 'GET').toUpperCase();
   const response = await fetch(`${API}${path}`, {
     ...options,
     headers: {
-      ...(options.body ? { 'content-type': 'application/json' } : {}),
+      // The API requires JSON Content-Type for every POST/PUT/PATCH, even
+      // when the operation has no request body (e.g. generating an invite).
+      ...(JSON_METHODS.has(method) ? { 'content-type': 'application/json' } : {}),
       ...(token ? { authorization: `Bearer ${token}` } : {}),
       ...options.headers,
     },

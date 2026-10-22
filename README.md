@@ -6,6 +6,7 @@
 - 本地 `node:sqlite` 与生产 Cloudflare D1
 - 用户名 + 邀请码注册（每人每月可生成 5 个邀请码）与邮箱记录；不验证学生身份（ADR-021）
 - 注册、登录、个人资料、全局标签（用户可创建与搜索）、手动课表和待交作业
+- 学生会话保留 30 天；Web 端登录令牌存于本地安全存储，产品更新/重新部署不会清除登录状态（仅服务端明确返回 401 时清除）
 - 管理控制台：邀请码生成与复制、用户/内容/举报/标签管理、操作审计
 - OpenAPI 文档端点
 
@@ -106,7 +107,7 @@ python3 -m http.server 8081 --bind 127.0.0.1 --directory apps/admin
 
 Flutter 客户端当前支持 Web/PWA 与 Android 工程结构；本阶段以 Web 构建、静态检查和行为测试作为验证门槛。
 
-GitHub Actions 在推送到 `main`、Pull Request 和手动触发时执行 API 类型检查/测试/构建、后台 JavaScript 语法检查，以及 Flutter 格式检查、分析、行为测试和 Web Release 构建。Android 打包暂不进入 CI，遵循当前 Web 优先迭代约束。
+GitHub Actions 在推送到 `main`、Pull Request 和手动触发时执行 API 类型检查/测试/构建、后台 JavaScript 语法与请求行为测试，以及 Flutter 格式检查、分析、行为测试和 Web Release 构建。Android 打包暂不进入 CI，遵循当前 Web 优先迭代约束。
 
 本地 SQLite 开发入口会自动应用 `0001`–`0015` 迁移；Cloudflare D1 生产部署需显式执行 `pnpm db:migrate:remote`。预发迁移和部署状态见 `docs/knowledge/apps/api/migrations/README.md` 与 `AGENT.md`。
 
@@ -179,7 +180,7 @@ git branch -M main
 git push -u origin main
 ```
 
-CI 会执行 API 检查/测试/构建、知识库校验、管理台语法检查，以及 Flutter 格式检查、分析、测试和 Web Release 构建。Cloudflare 部署凭据不要写进仓库，应放在 GitHub Actions Secrets（当前工作流不自动部署）。
+CI 会执行 API 检查/测试/构建、知识库校验、管理台语法与请求行为测试，以及 Flutter 格式检查、分析、会话持久化单元测试、组件测试和 Web Release 构建。Cloudflare 部署凭据不要写进仓库，应放在 GitHub Actions Secrets（当前工作流不自动部署）。
 
 ## 生产维护检查表
 

@@ -295,7 +295,7 @@ Read this section before continuing. It supersedes earlier handoff text about ca
 - Migration `0015_usernames.sql` adds `users.username`, backfills legacy accounts, and creates a unique index. `student_identities` remains as a reserved table. It has **not** been applied to remote staging or production.
 - Android release signing is configured from `apps/mobile/android/key.properties` with a debug fallback; `key.properties` and keystores are git-ignored.
 - Production config `apps/api/wrangler.jsonc` is still a template (placeholder D1 ID and origin). No production deploy has been performed.
-- Verification after the username change: API `pnpm check`, `pnpm test` (32 tests), `pnpm build`, `pnpm knowledge:check`; Flutter `dart format`, `flutter analyze`, `flutter test` (32 tests), `flutter build web --release`.
+- Verification after the username change: API `pnpm check`, `pnpm test` (34 tests), `pnpm build`, `pnpm knowledge:check`; admin `node --test tests/admin.test.mjs` (5 tests); Flutter `dart format`, `flutter analyze`, `flutter test` (39 tests), `flutter build web --release`.
 
 ### Identity model (ADR-021, ADR-023)
 

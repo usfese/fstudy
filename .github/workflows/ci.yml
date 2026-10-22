@@ -42,7 +42,7 @@ jobs:
       - name: Check API types
         run: pnpm check
 
-      - name: Test API
+      - name: Test API and admin console
         run: pnpm test
 
       - name: Build API

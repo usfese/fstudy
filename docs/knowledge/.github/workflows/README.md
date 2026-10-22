@@ -21,14 +21,14 @@
 | pnpm 11.28.4 | `pnpm/action-setup@v4` | 与根 `packageManager` 一致 |
 | 安装 | `pnpm install --frozen-lockfile` | 锁定依赖 |
 | API 类型检查 | `pnpm check` | `tsc --noEmit` |
-| API 测试 | `pnpm test` | Vitest |
+| API 测试 | `pnpm test` | Vitest + 管理台 Node `vm` 测试 |
 | API 构建 | `pnpm build` | `tsc` |
-| 管理台语法 | `node --check apps/admin/admin.js` | 仅语法，没有 UI 测试 |
+| 管理台语法 | `node --check apps/admin/admin.js` | 语法检查；行为测试由前一步的 `pnpm test` 执行 |
 | Flutter 稳定版 | `subosito/flutter-action@v2`，开启缓存 | 客户端工具链 |
 | 依赖 | `flutter pub get`（`apps/mobile`） | |
 | 格式 | `dart format --output=none --set-exit-if-changed lib test` | 格式不符即失败 |
 | 分析 | `flutter analyze` | |
-| 测试 | `flutter test` | 31 个 widget 测试 |
+| 测试 | `flutter test` | 39 个测试（33 个 widget/行为 + 6 个会话持久化单元测试） |
 | Web 构建 | `flutter build web --release` | 产物 `apps/mobile/build/web` |
 
 ## 不在 CI 中的内容

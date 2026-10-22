@@ -30,15 +30,15 @@
 
 | 方法 | 接口 | 说明 |
 | --- | --- | --- |
-| `restoreSession()` | `GET /v1/me`（带令牌） | 读取 `fstudy_access_token`；失败则删除本地令牌并返回 `null` |
-| `login({username, appPassword})` | `POST /v1/auth/login` | 成功后保存令牌；用户名不区分大小写 |
+| `restoreSession()` | `GET /v1/me`（带令牌） | 读取 `fstudy_access_token` 与 `fstudy_access_user`；校验成功后刷新用户快照。仅服务端明确返回 401 时清除本地会话；网络错误或 5xx 时返回缓存会话，避免部署/更新期间丢失登录状态 |
+| `login({username, appPassword})` | `POST /v1/auth/login` | 成功后保存令牌与用户快照；用户名不区分大小写 |
 | `register({username, email, appPassword, departmentId, inviteCode})` | `POST /v1/auth/register` | 邀请码注册；用户名或邮箱重复 409，邀请码无效 403，注册关闭 403 |
 | `startBrowserCas()` | `POST /v1/auth/cas/start` | 取得 `authorizationUrl` 并跳转；当前关闭 |
 | `completeBrowserCas({code, state, ...})` | `POST /v1/auth/cas/complete` | 处理回调 code；首次注册需要显示名与本系统密码 |
 | ~~`beginCasPasswordChallenge` / `refreshCasPasswordChallenge` / `verifyCasPasswordChallenge`~~ | ~~`/v1/auth/cas/password/*`~~ | 已注释停用（验证码流程） |
-| `logout()` | `POST /v1/auth/logout` | 即使服务端失败也会完成本地登出 |
+| `logout()` | `POST /v1/auth/logout` | 即使服务端失败也会清除本地令牌与用户快照 |
 
-`AuthSession` 包含 `accessToken` 与 `AuthUser`（`id`、`displayName`、`departmentId`）。`AuthFailure` 携带 `message` 与可选 `code`。`CasPasswordChallenge` 类已注释。
+`AuthSession` 包含 `accessToken` 与 `AuthUser`（`id`、`displayName`、`departmentId`）。`AuthFailure` 携带 `message` 与可选 `code`。`CasPasswordChallenge` 类已注释。`AuthStorage` 抽象出令牌读写，生产使用 `SecureAuthStorage`（Web 端落在 `localStorage` 的加密存储中），测试可注入内存实现。服务端学生会话有效期为 30 天。
 
 API 地址：`String.fromEnvironment('API_BASE_URL')`，默认 Web `http://127.0.0.1:8787`。
 
@@ -155,7 +155,7 @@ API 地址：`String.fromEnvironment('API_BASE_URL')`，默认 Web `http://127.0
 
 ## 测试覆盖
 
-`apps/mobile/test/widget_test.dart` 包含 32 个测试，使用假仓库，不发起真实网络请求。测试名称覆盖了以下流程：
+`apps/mobile/test/widget_test.dart` 包含 33 个组件/行为测试，`apps/mobile/test/auth_repository_test.dart` 包含 6 个会话持久化单元测试。测试使用假仓库或假 Dio 适配器，不发起真实网络请求。测试名称覆盖了以下流程：
 
 - 未登录时显示登录页，退出登录后返回登录页
 - 深色模式设置、通知铃铛打开收件箱并标记已读
@@ -167,6 +167,7 @@ API 地址：`String.fromEnvironment('API_BASE_URL')`，默认 Web `http://127.0
 - 论坛发帖、公开回复、举报帖子
 - 注册时填写邮箱与邀请码并提交（`registration asks for an email and an invite code`）
 - 个人页生成邀请码并显示剩余额度（`profile can generate an invite code and shows the remaining quota`）
+- 登录会话持久化：登录写入令牌与用户快照；网络中断时保留缓存登录；仅 401 清除本地会话；登出清除本地文件
 
 ## 待确认
 
