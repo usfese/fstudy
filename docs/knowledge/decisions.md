@@ -11,10 +11,10 @@
 | ADR-001 | API 使用 Hono，同一业务代码跑 Node 与 Workers | 生效 | runtime, hono, entrypoint, createApp |
 | ADR-002 | 数据库经 SqlDatabase 接口抽象 | 生效 | D1, node:sqlite, batch, adapter |
 | ADR-003 | 学生与管理员两套独立不透明令牌会话 | 生效 | token, session, admin, sessionStorage |
-| ADR-004 | 学号仅存 HMAC，不存姓名与学校密码 | 生效 | pepper, HMAC, student id, privacy |
+| ADR-004 | 学号仅存 HMAC，不存姓名与学校密码 | 已替代 | pepper, HMAC, student id, privacy |
 | ADR-005 | 应用密码 PBKDF2-SHA256 100k 次 | 生效 | PBKDF2, password, Workers limit |
-| ADR-006 | 学生身份采用 CAS-only，生产默认关闭 | 生效 | CAS, BUPT, auth, captcha, UCloud |
-| ADR-007 | 预发允许临时加密保存 CAS 状态（仅 staging） | 生效 | AES-GCM, encrypted_state, staging |
+| ADR-006 | 学生身份采用 CAS-only（注册部分已由 ADR-021 替代） | 部分替代 | CAS, BUPT, auth, UCloud |
+| ADR-007 | 预发临时加密保存 CAS 状态（验证码流程） | 已替代 | AES-GCM, encrypted_state, captcha |
 | ADR-008 | 标签为受控词表 | 生效 | tags, controlled vocabulary, recommendation |
 | ADR-009 | 发现与好友隐私优先，只返回空闲段 | 生效 | discover, friendship, availability, privacy |
 | ADR-010 | 内容软隐藏 + 举报 + 审计 | 生效 | moderation, report, audit, delete |
@@ -25,7 +25,10 @@
 | ADR-015 | Flutter 仓库接口 + Dio + go_router | 生效 | repository, Dio, go_router, secure storage |
 | ADR-016 | 管理后台为独立静态前端 | 生效 | admin, static, origin |
 | ADR-017 | 迁移只做前向变更（本地按标志表或索引检测） | 生效 | migration, D1, forward-only, node.ts |
-| ADR-018 | 北邮身份 365 天有效，过期需重新验证 | 生效 | identity, expiry, re-verification, CAS |
+| ADR-018 | 北邮身份过期机制 | 已替代 | identity, expiry, beta |
+| ADR-021 | 邀请码注册、记录邮箱、停用学生身份验证 | 部分替代 | invite, email, registration, quota |
+| ADR-022 | 内测期间不强制学生身份过期 | 已替代 | beta, identity, expiry, invite-only |
+| ADR-023 | 账户以用户名标识，学号退为预留字段 | 生效 | username, login, student id, migration |
 | ADR-019 | 好友课表可见级别（四级） | 生效 | schedule_visibility, friendBlocks, privacy |
 | ADR-020 | 保留预留依赖（本地通知、riverpod、drift） | 生效 | Android, notification, dependency |
 
@@ -60,7 +63,7 @@
 
 ## ADR-004：学号只以 HMAC 形式保存，不保存真实姓名与学校密码
 
-- **状态**：生效
+- **状态**：已替代（新账户不再使用学号，见 [ADR-023](#adr-023账户以用户名标识学号退为预留字段)）。历史 `student_identities` 行仍遵守本条。
 - **决策**：学号经 `HMAC-SHA256(pepper, studentId)` 后存入 `student_identities.student_id_hash`；`STUDENT_ID_PEPPER` 为 Wrangler secret，生产启动前校验长度不少于 32。学校密码只在请求内存中使用，不写日志、不落库；真实姓名不落库。
 - **理由**：防止学号被撞库还原，同时保证“一个学号只能注册一个账户”的唯一性。
 - **影响**：学号丢失无法从数据库反查；pepper 变更会导致所有既有身份失效，必须视为不可更换的密钥。
@@ -76,7 +79,7 @@
 
 ## ADR-006：学生身份认证采用 CAS-only 方案，生产默认关闭
 
-- **状态**：生效（其中验证码部分仍在实验中）
+- **状态**：部分替代。注册部分由 [ADR-021](#adr-021邀请码注册记录邮箱停用学生身份验证) 替代；CAS 浏览器登录代码保留但关闭。
 - **决策**：
   1. 本地 `AUTH_MODE=dev` 使用 `DevelopmentStudentVerifier`（固定密码 `dev-password`）。
   2. 生产 `AUTH_MODE=disabled` 使用 `DisabledStudentVerifier`，所有注册返回 503。
@@ -91,7 +94,7 @@
 
 ## ADR-007：预发环境允许临时加密保存 CAS 会话状态（仅 staging）
 
-- **状态**：生效（仅预发，生产禁止）
+- **状态**：已替代（2026-10-14）。验证码流程已由 [ADR-021](#adr-021邀请码注册记录邮箱停用学生身份验证) 停用，相关代码已注释。
 - **决策**：验证码挑战的 CAS cookie 与 execution 参数以 AES-GCM 加密后存入 `cas_password_challenges.encrypted_state`，密钥为 `CAS_STATE_ENCRYPTION_KEY`（Wrangler secret，至少 32 字符，内部取 SHA-256 作为密钥）。挑战 5 分钟过期、一次性使用、最多尝试 3 次，完成或失败后立即清空密文。
 - **理由**：用户明确批准的预发实验。
 - **依据**：`AGENT.md`「Security and Identity」例外条款；`apps/api/src/core/security.ts`（`encryptCasState` / `decryptCasState`）；`apps/api/src/http/app.ts`（`/v1/auth/cas/password/*`）；`migrations/0012`、`0013`。
@@ -181,17 +184,9 @@
 
 ## ADR-018：北邮身份 365 天有效，过期需重新验证
 
-- **状态**：生效
-- **决策**：`student_identities.expires_at` = 验证时间 + 365 天，并强制执行：
-  - 登录：密码正确后若身份已过期，返回 403 `identity_reverification_required`。该分支不计入失败次数。
-  - 会话：`authenticate` 与会话签发都检查身份有效期，过期身份的已有会话立即失效。
-  - 社交：发现列表、好友申请的目标、共同空闲的对象都排除过期身份。
-  - 续期：一次新的学校验证（浏览器 CAS 完成，或验证码流程）若命中已过期身份，则更新 `verified_at` 与 `expires_at`，并签发新会话。资料与本系统密码不变。
-- **理由**：学籍状态会变化（毕业、休学），身份需要定期确认。
-- **影响**：
-  - 过期用户的论坛帖与项目内容仍然公开可见，本决定不处理内容下架。
-  - 续期依赖学校验证路径。当前浏览器 CAS 已关闭，验证码流程仅在预发实验，所以**生产环境目前无法续期**。在开放注册前必须解决续期路径。
-- **依据**：`apps/api/src/modules/identity/account-service.ts`（`login`、`authenticate`、`renewIdentityIfExpired`）、`cas-login-service.ts`、`test/app.test.ts`。
+- **状态**：已由 [ADR-022](#adr-022内测期间不强制学生身份过期) 替代（2026-10-19）。`expires_at` 列暂时保留用于兼容，但不再参与授权判断。
+- **历史决策**：注册或学校验证后设为 365 天；过期拒绝登录并使会话失效。该策略曾被实现，后因学校验证停用而无法为用户续期，故内测期间取消。
+- **历史依据**：`apps/api/src/modules/identity/account-service.ts`、早期发现/好友/共同空闲过滤逻辑与过期测试（均已调整）。
 
 ## ADR-019：好友课表可见级别（四级）
 
@@ -217,4 +212,42 @@
 - **理由**：产品计划推出 Android 版本，本地通知是其中的一部分。
 - **影响**：这三个依赖已声明但 `lib/` 中暂未引用，属于有意保留。它们不影响 Web 构建，但会增加依赖解析的时间。
 - **依据**：用户决定（2026-10-14）；`apps/mobile/pubspec.yaml`。
+
+## ADR-021：邀请码注册、记录邮箱、停用学生身份验证
+
+- **状态**：部分替代（替代 ADR-006 的注册部分与 ADR-007；账户标识部分由 [ADR-023](#adr-023账户以用户名标识学号退为预留字段) 取代）
+- **决策**：
+  1. **不再验证学生身份，也不验证邮箱**。注册时由用户自行填写用户名与邮箱，以用户名作为账户唯一标识（后续由 ADR-023 明确）。学校密码、验证码、学校 CAS 注册流程全部停用，相关代码已注释保留。
+  2. **邮箱必须记录**。`user_emails` 表保存规范化后的邮箱（小写、唯一）。邮箱不验证、不发送邮件；`GET /v1/me` 只返回本人邮箱，不对外公开。
+  3. **注册必须提供邀请码**。邀请码为 12 位 Crockford Base32（显示为 `XXXX-XXXX-XXXX`），数据库只保存 SHA-256 哈希。输入不区分大小写、忽略分隔符，并映射易混字符（I/L→1，O→0）。每个邀请码只能使用一次。
+  4. **每人每月最多生成 5 个邀请码**。按 Asia/Shanghai 自然月计算。额度计入“生成”，不计入“使用”；未使用的码也占用额度。运营可通过 `POST /v1/admin/invites` 生成不占用个人额度的码，用于启动阶段。
+  5. **注册入口开关**。`INVITE_REGISTRATION_ENABLED`：本地默认开启，Worker 默认关闭。生产配置不设置该变量，因此注册保持关闭，直到你明确批准。
+- **理由**：你决定不需要学生身份验证。邀请码提供准入控制，邮箱用于账户记录。
+- **影响**：
+  - 账户标识没有任何外部校验，注册者可以自选用户名。唯一性约束仍然生效，但不能证明身份属于本人。
+  - 发布前必须决定：是否接受这一风险，或者重新启用某种身份校验。
+  - ADR-018 的过期规则已由 ADR-022 替代：内测阶段不强制过期。ADR-023 进一步移除了学号，只保留数据库列作为扩展点。正式发布前必须重新评估身份校验。
+  - 邀请码的生成、使用和 Flutter 注册表单、个人页“邀请同学”卡片均已实现。
+- **依据**：`apps/api/src/modules/invites/invite-service.ts`；`apps/api/src/modules/identity/account-service.ts`（`register`）；`apps/api/migrations/0014_invites_and_email.sql`；`apps/mobile/lib/features/auth/auth_page.dart`；用户决定（2026-10-14）。
+
+## ADR-022：内测期间不强制学生身份过期
+
+- **状态**：已替代（ADR-023 不再为新账户写入学生身份）。以下内容仅描述历史行为。
+- **决策**：`student_identities.expires_at` 保留在 schema 中作为历史兼容字段，注册仍写入 365 天后的日期，但**授权、登录、会话、发现、好友申请和共同空闲不再读取该字段**。实际限制只由账户状态和会话自身的 `expires_at` 决定。用户确认接受学生身份未经核验的内测风险。
+- **理由**：ADR-021 已停止学校身份验证；若继续强制 365 天过期，用户会在无法续期的情况下被锁出账户。此应用目前仅做邀请制内测。
+- **影响**：学号是用户自行填写的唯一标识，不证明其本人身份。正式发布前必须重新评估验证、隐私与合规要求。未来决定重新启用时需重新设计并提供可用的续期方式。
+- **依据**：用户决定（2026-10-19）；`apps/api/src/modules/identity/account-service.ts`、`discovery-service.ts`、`friend-service.ts`、`availability-service.ts`。
+
+## ADR-023：账户以用户名标识，学号退为预留字段
+
+- **状态**：生效（2026-10-22）
+- **决策**：
+  1. 学生账户的唯一标识改为 `users.username`：3–20 位字母、数字或下划线，存储时转为小写，登录不区分大小写。注册仍需邀请码与邮箱；`displayName` 可选，默认与用户名相同，仅用于展示，不参与登录。
+  2. 新账户不再写入 `student_identities`。该表及 `student_id_hash` 列保留为未来扩展点，历史数据不删除、不改写。
+  3. 登录节流键为 `login:<SHA-256(小写用户名)>`，节流表不保存用户名明文。
+  4. 旧账户在迁移 `0015_usernames.sql` 中回填 `username = user_<id 前 8 位>`。原学号仍只以 HMAC 形式存在，无法还原。
+  5. CAS 浏览器登录仅保留为历史兼容。没有 `student_identities` 行的账户即使通过 CAS 也会被拒绝（403 `invite_registration_required`），不能创建新账户。
+- **理由**：用户要求彻底移除学号、只用用户名，同时保留数据库学号列供未来扩展。邀请制内测不再依赖学号作为身份。
+- **影响**：`POST /v1/auth/register` 与 `POST /v1/auth/login` 的 `studentId` 字段改为 `username`；Flutter、测试、OpenAPI 与文档同步更新。`STUDENT_ID_PEPPER` 只被保留的 CAS 代码使用。正式发布前仍需重新评估身份可信度与合规要求。
+- **依据**：用户决定（2026-10-22）；`apps/api/migrations/0015_usernames.sql`；`apps/api/src/modules/identity/account-service.ts`；`apps/mobile/lib/features/auth/auth_page.dart`。
 

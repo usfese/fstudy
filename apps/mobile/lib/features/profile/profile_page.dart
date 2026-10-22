@@ -112,6 +112,17 @@ class _ProfilePageState extends State<ProfilePage> {
                     style: Theme.of(context).textTheme.headlineMedium
                         ?.copyWith(fontWeight: FontWeight.w700),
                   ),
+                  if (snapshot.data!.username != null) ...[
+                    const SizedBox(height: 6),
+                    Text(
+                      '@${snapshot.data!.username}',
+                      key: const Key('profileUsername'),
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.primary,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
                   const SizedBox(height: 8),
                   Text(
                     '控制其他同学如何发现你，以及能看到多少课表信息。',
@@ -203,6 +214,8 @@ class _ProfilePageState extends State<ProfilePage> {
                       label: Text(_saving ? '保存中…' : '保存设置'),
                     ),
                   ),
+                  const SizedBox(height: 32),
+                  _InviteCard(repository: widget.repository),
                   const SizedBox(height: 48),
                   const Divider(),
                   const SizedBox(height: 16),
@@ -249,5 +262,99 @@ class _ProfilePageState extends State<ProfilePage> {
       ),
     );
     if (confirmed == true) await widget.onLogout();
+  }
+}
+
+class _InviteCard extends StatefulWidget {
+  const _InviteCard({required this.repository});
+
+  final ProfileRepository repository;
+
+  @override
+  State<_InviteCard> createState() => _InviteCardState();
+}
+
+class _InviteCardState extends State<_InviteCard> {
+  InviteOverview? _overview;
+  String? _error;
+  bool _creating = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    try {
+      final overview = await widget.repository.getInvites();
+      if (mounted) setState(() => _overview = overview);
+    } on ProfileFailure catch (error) {
+      if (mounted) setState(() => _error = error.message);
+    }
+  }
+
+  Future<void> _create() async {
+    setState(() {
+      _creating = true;
+      _error = null;
+    });
+    try {
+      final issued = await widget.repository.createInvite();
+      if (!mounted) return;
+      setState(() {
+        _overview = InviteOverview(
+          remainingThisMonth: issued.remainingThisMonth,
+          quota: _overview!.quota,
+        );
+      });
+      await showDialog<void>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('新的邀请码'),
+          content: SelectableText(
+            issued.code,
+            key: const Key('issuedInviteCode'),
+            style: Theme.of(dialogContext).textTheme.titleLarge,
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('完成'),
+            ),
+          ],
+        ),
+      );
+    } on ProfileFailure catch (error) {
+      if (mounted) setState(() => _error = error.message);
+    } finally {
+      if (mounted) setState(() => _creating = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final overview = _overview;
+    final canCreate =
+        !_creating && overview != null && overview.remainingThisMonth > 0;
+    return Card(
+      key: const Key('inviteCard'),
+      margin: EdgeInsets.zero,
+      child: ListTile(
+        leading: const Icon(Icons.group_add_outlined),
+        title: const Text('邀请同学'),
+        subtitle: Text(
+          _error ??
+              (overview == null
+                  ? '正在读取邀请额度…'
+                  : '本月还可生成 ${overview.remainingThisMonth} / ${overview.quota} 个邀请码'),
+        ),
+        trailing: FilledButton(
+          key: const Key('createInviteButton'),
+          onPressed: canCreate ? _create : null,
+          child: Text(_creating ? '生成中…' : '生成'),
+        ),
+      ),
+    );
   }
 }

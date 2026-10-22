@@ -63,8 +63,9 @@ for (const id of adrIndex) if (!adrHeadings.includes(id)) failures.push(`decisio
 const app = read('apps/api/src/http/app.ts');
 const openapiBlock = app.slice(app.indexOf('const OPENAPI_DOCUMENT'), app.indexOf('export function createApp'));
 const documented = new Set([...openapiBlock.matchAll(/^ {4}'(\/[^']+)': \{/gm)].map((m) => m[1]));
+const liveRoutes = app.split('\n').filter((line) => !/^\s*\/\//.test(line)).join('\n');
 const registered = new Set(
-  [...app.matchAll(/app\.(?:get|post|put|patch|delete)\(\s*'(\/[^']+)'/g)]
+  [...liveRoutes.matchAll(/app\.(?:get|post|put|patch|delete)\(\s*'(\/[^']+)'/g)]
     .map((m) => m[1].replace(/:(\w+)/g, '{$1}'))
     .filter((p) => p !== '/health' && p !== '/openapi.json'),
 );

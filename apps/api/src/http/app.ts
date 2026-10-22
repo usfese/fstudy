@@ -17,6 +17,7 @@ import { ProjectService } from '../modules/projects/project-service.js';
 import { ForumService } from '../modules/forum/forum-service.js';
 import { AdminService } from '../modules/admin/admin-service.js';
 import { NotificationService } from '../modules/notifications/notification-service.js';
+import { InviteService } from '../modules/invites/invite-service.js';
 import { CasLoginService } from '../modules/identity/cas-login-service.js';
 import { requireAdminAuthentication, requireAuthentication, type AppVariables } from './auth.js';
 import {
@@ -30,9 +31,6 @@ import {
   AdminUserStatusSchema,
   NotificationReadSchema,
   CasCompleteSchema,
-  CasPasswordChallengeSchema,
-  CasPasswordVerificationSchema,
-  CasPasswordRefreshSchema,
   AvailabilityInviteActionSchema,
   AvailabilityInviteSchema,
   AvailabilityQuerySchema,
@@ -59,8 +57,10 @@ const OPENAPI_DOCUMENT = {
   info: { title: 'FStudy API', version: '0.1.0' },
   servers: [{ url: '/' }],
   paths: {
-    '/v1/auth/register': { post: { summary: '验证学生身份并注册' } },
-    '/v1/auth/login': { post: { summary: '使用学号和本系统密码登录' } },
+    '/v1/auth/register': { post: { summary: '使用用户名、邮箱、邀请码和本系统密码注册' } },
+    '/v1/me/invites': { get: { summary: '读取本人本月邀请额度与邀请码状态' }, post: { summary: '生成一个邀请码（每人每月 5 个）' } },
+    '/v1/admin/invites': { post: { summary: '生成运营邀请码（不占用个人额度）' } },
+    '/v1/auth/login': { post: { summary: '使用用户名和本系统密码登录' } },
     '/v1/auth/logout': { post: { summary: '撤销当前会话并退出登录' } },
     '/v1/me': { get: { summary: '读取个人资料' }, patch: { summary: '更新个人资料和隐私偏好' } },
     '/v1/tags': { get: { summary: '读取受控标签（需要登录）' } },
@@ -95,9 +95,9 @@ const OPENAPI_DOCUMENT = {
     '/v1/auth/cas/start': { post: { summary: '发起浏览器北邮 CAS 身份认证' } },
     '/v1/auth/cas/callback': { get: { summary: '接收并校验北邮 CAS ticket' } },
     '/v1/auth/cas/complete': { post: { summary: '使用已校验的一次性 CAS 结果创建 FStudy 账户' } },
-    '/v1/auth/cas/password/challenge': { post: { summary: '获取北邮验证码和短期挑战' } },
-    '/v1/auth/cas/password/refresh': { post: { summary: '更换北邮验证码并获得新的挑战' } },
-    '/v1/auth/cas/password/verify': { post: { summary: '提交一次性北邮密码和验证码完成注册' } },
+    // '/v1/auth/cas/password/challenge': { post: { summary: '获取北邮验证码和短期挑战' } },
+    // '/v1/auth/cas/password/refresh': { post: { summary: '更换北邮验证码并获得新的挑战' } },
+    // '/v1/auth/cas/password/verify': { post: { summary: '提交一次性北邮密码和验证码完成注册' } },
     '/v1/admin/auth/login': { post: { summary: '管理员独立登录' } },
     '/v1/admin/auth/logout': { post: { summary: '管理员退出登录' } },
     '/v1/admin/auth/password': { put: { summary: '修改管理员密码并撤销会话' } },
@@ -119,9 +119,9 @@ export function createApp(dependencies: RuntimeDependencies) {
   const scheduleService = new ScheduleService(dependencies.database);
   const assignmentService = new AssignmentService(dependencies.database);
   const planService = new PlanService(dependencies.database);
-  const discoveryService = new DiscoveryService(dependencies.database, dependencies.clock);
-  const friendService = new FriendService(dependencies.database, dependencies.clock);
-  const availabilityService = new AvailabilityService(dependencies.database, dependencies.clock);
+  const discoveryService = new DiscoveryService(dependencies.database);
+  const friendService = new FriendService(dependencies.database);
+  const availabilityService = new AvailabilityService(dependencies.database);
   const projectService = new ProjectService(dependencies.database);
   const forumService = new ForumService(dependencies.database);
   const adminService = new AdminService(dependencies);
@@ -170,6 +170,7 @@ export function createApp(dependencies: RuntimeDependencies) {
   app.get('/openapi.json', (context) => context.json(OPENAPI_DOCUMENT, 200));
 
   const casLogin = new CasLoginService(dependencies, accountService, allowedOrigins);
+  const inviteService = new InviteService(dependencies.database, dependencies.clock);
 
   app.post('/v1/auth/cas/start', async (context) => {
     return context.json(await casLogin.startBrowserLogin(context.req.header('origin')), 200);
@@ -234,36 +235,36 @@ export function createApp(dependencies: RuntimeDependencies) {
     return context.json({ tag: await adminService.saveTag(context.get('adminUsername'), context.req.valid('json')) }, 200);
   });
   app.get('/v1/admin/audit', async (context) => context.json({ entries: await adminService.listAudit() }, 200));
+  app.post('/v1/admin/invites', async (context) => {
+    return context.json(await adminService.issueInvite(context.get('adminUsername')), 201);
+  });
 
   app.post('/v1/auth/register', zValidator('json', RegisterSchema), async (context) => {
-    if (!dependencies.schoolPasswordRegistrationEnabled) {
-      throw new DomainError(
-        'browser_identity_auth_required',
-        '请使用北邮统一身份认证跳转完成注册；FStudy 不接收学校密码',
-        403,
-      );
+    if (!dependencies.inviteRegistrationEnabled) {
+      throw new DomainError('registration_closed', '当前未开放注册', 403);
     }
     const result = await accountService.register(context.req.valid('json'));
     return context.json(result, 201);
   });
 
-  app.post('/v1/auth/cas/password/challenge', zValidator('json', CasPasswordChallengeSchema), async (context) => {
-    const { studentId } = context.req.valid('json');
-    return context.json(await casLogin.issuePasswordChallenge(context.req.header('origin'), studentId), 200);
-  });
+  // [2026-10-14 已停用] 验证码 / 学校密码验证相关代码，保留以便日后恢复，勿直接启用：
+  // app.post('/v1/auth/cas/password/challenge', zValidator('json', CasPasswordChallengeSchema), async (context) => {
+    // const { studentId } = context.req.valid('json');
+    // return context.json(await casLogin.issuePasswordChallenge(context.req.header('origin'), studentId), 200);
+  // });
 
-  app.post('/v1/auth/cas/password/verify', zValidator('json', CasPasswordVerificationSchema), async (context) => {
-    const outcome = await casLogin.verifyPasswordChallenge(context.req.valid('json'));
-    if (outcome.kind === 'retry') {
-      return context.json({ error: { code: outcome.code, message: outcome.message }, retryAllowed: true }, 401);
-    }
-    return context.json(outcome.session, 201);
-  });
+  // app.post('/v1/auth/cas/password/verify', zValidator('json', CasPasswordVerificationSchema), async (context) => {
+    // const outcome = await casLogin.verifyPasswordChallenge(context.req.valid('json'));
+    // if (outcome.kind === 'retry') {
+      // return context.json({ error: { code: outcome.code, message: outcome.message }, retryAllowed: true }, 401);
+    // }
+    // return context.json(outcome.session, 201);
+  // });
 
-  app.post('/v1/auth/cas/password/refresh', zValidator('json', CasPasswordRefreshSchema), async (context) => {
-    const { challengeId, studentId } = context.req.valid('json');
-    return context.json(await casLogin.refreshPasswordChallenge(challengeId, studentId), 200);
-  });
+  // app.post('/v1/auth/cas/password/refresh', zValidator('json', CasPasswordRefreshSchema), async (context) => {
+    // const { challengeId, studentId } = context.req.valid('json');
+    // return context.json(await casLogin.refreshPasswordChallenge(challengeId, studentId), 200);
+  // });
 
   app.post('/v1/auth/login', zValidator('json', LoginSchema), async (context) => {
     const result = await accountService.login(context.req.valid('json'));
@@ -298,7 +299,19 @@ export function createApp(dependencies: RuntimeDependencies) {
   });
 
   app.get('/v1/me', async (context) => {
-    return context.json({ user: await accountService.getUser(context.get('userId')) }, 200);
+    const userId = context.get('userId');
+    return context.json({
+      user: await accountService.getUser(userId),
+      email: await accountService.getEmail(userId),
+    }, 200);
+  });
+
+  app.get('/v1/me/invites', async (context) => {
+    return context.json(await inviteService.listForUser(context.get('userId')), 200);
+  });
+
+  app.post('/v1/me/invites', async (context) => {
+    return context.json(await inviteService.issueForUser(context.get('userId')), 201);
   });
 
   app.get('/v1/me/academic-settings', async (context) => {

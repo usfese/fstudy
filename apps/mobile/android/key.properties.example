@@ -1,0 +1,6 @@
+# Copy to `apps/mobile/android/key.properties` and fill in real values.
+# Never commit key.properties, the keystore, or the passwords.
+storePassword=replace-with-keystore-password
+keyPassword=replace-with-key-password
+keyAlias=fstudy
+storeFile=upload-keystore.jks

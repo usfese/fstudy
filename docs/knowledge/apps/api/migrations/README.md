@@ -3,8 +3,8 @@
 SQL 迁移为前向迁移，编号递增。**已部署（远程 D1）的迁移不得修改**，需要变更时新增文件。
 
 - 远程（预发/生产）：`pnpm db:migrate:remote`（即 `wrangler d1 migrations apply fstudy --remote`）。
-- 本地 Node：启动时由 `entrypoints/node.ts` 按“标志表是否存在”自动执行（见下方“迁移历史”的说明）。
-- 预发远程历史已到 `0013_cas_challenge_attempts.sql`（来自 `AGENT.md` 交接记录）。**不要重置预发数据库**。
+- 本地 Node：启动时由 `entrypoints/node.ts` 按“标志表或索引是否存在”自动执行（见下方“迁移历史”的说明）。
+- 预发远程历史已到 `0013_cas_challenge_attempts.sql`（2026-10-14 核对）。`0014` 尚未在远程执行，需要明确批准后再运行 `pnpm db:migrate:remote`。**不要重置预发数据库**。
 
 ## 迁移历史
 
@@ -19,10 +19,12 @@ SQL 迁移为前向迁移，编号递增。**已部署（远程 D1）的迁移�
 | 0007 | `0007_forum.sql` | 论坛帖子与回复 | `forum_posts` |
 | 0008 | `0008_admin.sql` | 管理员、管理会话、审计、举报；给 `forum_posts`、`forum_replies`、`projects` 增加 `moderation_status` | `admin_sessions` |
 | 0009 | `0009_academic_settings.sql` | 学期第一周起始日期 | `user_academic_settings` |
-| 0010 | `0010_notifications.sql` | 站内通知 **（未提交）** | `notifications` |
-| 0011 | `0011_cas_browser_login.sql` | CAS 跳转登录的 state 与一次性 code **（未提交）** | `cas_login_states` |
-| 0012 | `0012_cas_password_challenges.sql` | 验证码挑战表（含 `attempt_count`） **（未提交）** | `cas_password_challenges` |
-| 0013 | `0013_cas_challenge_attempts.sql` | 仅创建 `(student_id_hash, attempt_count, expires_at)` 索引 **（未提交）** | 检测索引 `cas_password_challenges_attempts_idx` 缺失 |
+| 0010 | `0010_notifications.sql` | 站内通知 | `notifications` |
+| 0011 | `0011_cas_browser_login.sql` | CAS 跳转登录的 state 与一次性 code（入口已关闭） | `cas_login_states` |
+| 0012 | `0012_cas_password_challenges.sql` | 验证码挑战表（含 `attempt_count`；流程已停用，表保留） | `cas_password_challenges` |
+| 0013 | `0013_cas_challenge_attempts.sql` | 仅创建 `(student_id_hash, attempt_count, expires_at)` 索引 | 检测索引 `cas_password_challenges_attempts_idx` 缺失 |
+| 0014 | `0014_invites_and_email.sql` | 邀请码 `invite_codes`、用户邮箱 `user_emails`（ADR-021）。预发已执行；生产未执行 | `invite_codes` |
+| 0015 | `0015_usernames.sql` | 给 `users` 增加 `username` 并回填旧账户，建立唯一索引（ADR-023）。**尚未在远程执行** | `users.username` |
 
 ### 迁移历史的注意事项
 
@@ -37,11 +39,11 @@ SQL 迁移为前向迁移，编号递增。**已部署（远程 D1）的迁移�
 
 | 表 | 主键 | 关键字段 | 说明 |
 | --- | --- | --- | --- |
-| `users` | `id` | `display_name`、`department_id`、`bio`、`discoverable`(0/1)、`schedule_visibility`、`status`(active/suspended/deleted) | 学生用户 |
-| `student_identities` | `user_id` | `student_id_hash` (UNIQUE)、`verified_department_id`、`verified_at`、`expires_at` | 学号 HMAC 与用户一对一 |
+| `users` | `id` | `username`(UNIQUE)、`display_name`、`department_id`、`bio`、`discoverable`(0/1)、`schedule_visibility`、`status`(active/suspended/deleted) | 学生用户；用户名是登录标识（ADR-023） |
+| `student_identities` | `user_id` | `student_id_hash` (UNIQUE)、`verified_department_id`、`verified_at`、`expires_at` | **历史/预留**：新账户不再写入；学号列保留供未来扩展 |
 | `credentials` | `user_id` | `password_hash`、`password_salt`、`password_iterations` | PBKDF2 凭据 |
 | `sessions` | `id` | `token_hash` (UNIQUE)、`expires_at`、`revoked_at` | 学生会话 |
-| `auth_throttles` | `throttle_key` | `failure_count`、`window_started_at`、`blocked_until` | 学号哈希维度的失败节流 |
+| `auth_throttles` | `throttle_key` | `failure_count`、`window_started_at`、`blocked_until` | 登录标识哈希维度的失败节流 |
 
 ### 课表与学习
 
@@ -89,18 +91,25 @@ SQL 迁移为前向迁移，编号递增。**已部署（远程 D1）的迁移�
 | `admin_audit_log` | `id` | `actor`、`action`、`entity_type`、`entity_id`、`details`(JSON 文本) |
 | `content_reports` | `id` | `reporter_id`、`target_type`、`target_id`、`reason`、`status` ∈ open/resolved/dismissed |
 
-### 通知与 CAS 流程（未提交）
+### 邀请与邮箱（ADR-021）
+
+| 表 | 主键 | 说明 |
+| --- | --- | --- |
+| `invite_codes` | `id` | `code_hash`（UNIQUE，SHA-256）、`source`（user/admin）、`issued_by`（可空）、`issued_month`（`YYYY-MM`，Asia/Shanghai）、`used_by`（不设外键：领取发生在用户行写入之前）、`used_at` |
+| `user_emails` | `user_id` | `email`（UNIQUE，小写），`created_at`。邮箱不验证，不对外公开 |
+
+### 通知与 CAS 流程
 
 | 表 | 主键 | 说明 |
 | --- | --- | --- |
 | `notifications` | `id` | `recipient_id`、`actor_id`、`kind`、`title`、`body`、`target_path`、`read_at` |
 | `cas_login_states` | `state_hash` | 浏览器 CAS 的 state（5 分钟，一次性 `used_at`） |
 | `cas_login_codes` | `code_hash` | CAS 结果换取的一次性 code（2 分钟，存 `student_id_hash`） |
-| `cas_password_challenges` | `challenge_hash` | 验证码挑战：`student_id_hash`、`encrypted_state`（AES-GCM 密文，用后清空）、`consumed_at`、`attempt_count`（上限 3） |
+| `cas_password_challenges` | `challenge_hash` | 验证码挑战（流程已停用，表保留）：`student_id_hash`、`encrypted_state`（AES-GCM 密文，用后清空）、`consumed_at`、`attempt_count`（上限 3） |
 
 ## 安全相关的数据约定
 
 - 所有令牌、挑战 ID、code 都只保存 SHA-256 哈希。
-- 学号只保存 HMAC，任何表中都没有学号明文或真实姓名。
+- 历史学号只保存 HMAC；新账户不再采集学号。任何表中都没有学号明文或真实姓名。
 - `cas_password_challenges.encrypted_state` 在完成或失败后被置为空字符串。
 - 外键启用：本地 `PRAGMA foreign_keys = ON`；D1 默认启用。删除用户会级联删除其课程、作业、会话、好友请求等，但 `assignments.course_id` 为 `SET NULL`。

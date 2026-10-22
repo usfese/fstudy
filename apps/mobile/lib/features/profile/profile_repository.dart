@@ -13,6 +13,7 @@ class ProfileFailure implements Exception {
 
 class UserProfile {
   const UserProfile({
+    this.username,
     required this.displayName,
     required this.bio,
     required this.departmentId,
@@ -21,6 +22,7 @@ class UserProfile {
   });
 
   factory UserProfile.fromJson(Map<String, dynamic> json) => UserProfile(
+    username: json['username'] as String?,
     displayName: json['displayName'] as String,
     bio: json['bio'] as String,
     departmentId: json['departmentId'] as String?,
@@ -28,6 +30,7 @@ class UserProfile {
     scheduleVisibility: json['scheduleVisibility'] as String,
   );
 
+  final String? username;
   final String displayName;
   final String bio;
   final String? departmentId;
@@ -35,9 +38,35 @@ class UserProfile {
   final String scheduleVisibility;
 }
 
+class InviteOverview {
+  const InviteOverview({required this.remainingThisMonth, required this.quota});
+
+  factory InviteOverview.fromJson(Map<String, dynamic> json) => InviteOverview(
+    remainingThisMonth: json['remainingThisMonth'] as int,
+    quota: json['quota'] as int,
+  );
+
+  final int remainingThisMonth;
+  final int quota;
+}
+
+class IssuedInvite {
+  const IssuedInvite({required this.code, required this.remainingThisMonth});
+
+  factory IssuedInvite.fromJson(Map<String, dynamic> json) => IssuedInvite(
+    code: json['code'] as String,
+    remainingThisMonth: json['remainingThisMonth'] as int,
+  );
+
+  final String code;
+  final int remainingThisMonth;
+}
+
 abstract interface class ProfileRepository {
   Future<UserProfile> getProfile();
   Future<UserProfile> updateProfile(UserProfile profile);
+  Future<InviteOverview> getInvites();
+  Future<IssuedInvite> createInvite();
 }
 
 class DioProfileRepository implements ProfileRepository {
@@ -81,6 +110,22 @@ class DioProfileRepository implements ProfileRepository {
       ),
     );
     return UserProfile.fromJson(data['user'] as Map<String, dynamic>);
+  }
+
+  @override
+  Future<InviteOverview> getInvites() async {
+    final data = await _request(
+      () => _dio.get<Map<String, dynamic>>('/v1/me/invites'),
+    );
+    return InviteOverview.fromJson(data);
+  }
+
+  @override
+  Future<IssuedInvite> createInvite() async {
+    final data = await _request(
+      () => _dio.post<Map<String, dynamic>>('/v1/me/invites', data: const {}),
+    );
+    return IssuedInvite.fromJson(data);
   }
 
   Future<Map<String, dynamic>> _request(

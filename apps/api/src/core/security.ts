@@ -18,6 +18,11 @@ function bytesToHex(bytes: Uint8Array): string {
   return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
 }
 
+export async function hashLoginIdentifier(value: string): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', encoder.encode(value));
+  return bytesToHex(new Uint8Array(digest));
+}
+
 export async function hashStudentId(studentId: string, pepper: string): Promise<string> {
   const key = await crypto.subtle.importKey(
     'raw',
@@ -87,31 +92,32 @@ export async function hashToken(token: string): Promise<string> {
   return bytesToHex(new Uint8Array(digest));
 }
 
-async function casEncryptionKey(secret: string): Promise<CryptoKey> {
-  const digest = await crypto.subtle.digest('SHA-256', encoder.encode(secret));
-  return crypto.subtle.importKey('raw', digest, { name: 'AES-GCM' }, false, ['encrypt', 'decrypt']);
-}
+// [2026-10-14 已停用] 验证码 / 学校密码验证相关代码，保留以便日后恢复，勿直接启用：
+// async function casEncryptionKey(secret: string): Promise<CryptoKey> {
+  // const digest = await crypto.subtle.digest('SHA-256', encoder.encode(secret));
+  // return crypto.subtle.importKey('raw', digest, { name: 'AES-GCM' }, false, ['encrypt', 'decrypt']);
+// }
 
-export async function encryptCasState(plaintext: string, secret: string): Promise<string> {
-  if (secret.length < 32) throw new Error('CAS_STATE_ENCRYPTION_KEY must be at least 32 characters');
-  const iv = crypto.getRandomValues(new Uint8Array(12));
-  const ciphertext = await crypto.subtle.encrypt(
-    { name: 'AES-GCM', iv }, await casEncryptionKey(secret), encoder.encode(plaintext),
-  );
-  const packed = new Uint8Array(iv.length + ciphertext.byteLength);
-  packed.set(iv);
-  packed.set(new Uint8Array(ciphertext), iv.length);
-  return bytesToBase64(packed);
-}
+// export async function encryptCasState(plaintext: string, secret: string): Promise<string> {
+  // if (secret.length < 32) throw new Error('CAS_STATE_ENCRYPTION_KEY must be at least 32 characters');
+  // const iv = crypto.getRandomValues(new Uint8Array(12));
+  // const ciphertext = await crypto.subtle.encrypt(
+    // { name: 'AES-GCM', iv }, await casEncryptionKey(secret), encoder.encode(plaintext),
+  // );
+  // const packed = new Uint8Array(iv.length + ciphertext.byteLength);
+  // packed.set(iv);
+  // packed.set(new Uint8Array(ciphertext), iv.length);
+  // return bytesToBase64(packed);
+// }
 
-export async function decryptCasState(encrypted: string, secret: string): Promise<string> {
-  if (secret.length < 32) throw new Error('CAS_STATE_ENCRYPTION_KEY must be at least 32 characters');
-  const packed = base64ToBytes(encrypted);
-  if (packed.length < 13) throw new Error('Invalid encrypted CAS state');
-  const iv = packed.slice(0, 12);
-  const ciphertext = packed.slice(12);
-  const plaintext = await crypto.subtle.decrypt(
-    { name: 'AES-GCM', iv: iv as BufferSource }, await casEncryptionKey(secret), ciphertext as BufferSource,
-  );
-  return new TextDecoder().decode(plaintext);
-}
+// export async function decryptCasState(encrypted: string, secret: string): Promise<string> {
+  // if (secret.length < 32) throw new Error('CAS_STATE_ENCRYPTION_KEY must be at least 32 characters');
+  // const packed = base64ToBytes(encrypted);
+  // if (packed.length < 13) throw new Error('Invalid encrypted CAS state');
+  // const iv = packed.slice(0, 12);
+  // const ciphertext = packed.slice(12);
+  // const plaintext = await crypto.subtle.decrypt(
+    // { name: 'AES-GCM', iv: iv as BufferSource }, await casEncryptionKey(secret), ciphertext as BufferSource,
+  // );
+  // return new TextDecoder().decode(plaintext);
+// }

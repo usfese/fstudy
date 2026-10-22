@@ -2,11 +2,12 @@ import { DomainError } from '../../core/errors.js';
 import {
   createOpaqueToken,
   createPasswordCredential,
-  hashStudentId,
+  hashLoginIdentifier,
   hashToken,
   verifyPassword,
 } from '../../core/security.js';
 import type { RuntimeDependencies } from '../../core/types.js';
+import { InviteService } from '../invites/invite-service.js';
 
 type LoginRow = {
   user_id: string;
@@ -14,11 +15,11 @@ type LoginRow = {
   password_salt: string;
   password_iterations: number;
   status: string;
-  identity_expires_at: string;
 };
 
 export type PublicUser = {
   id: string;
+  username: string | null;
   displayName: string;
   departmentId: string | null;
   bio: string;
@@ -29,6 +30,7 @@ export type PublicUser = {
 
 type UserRow = {
   id: string;
+  username: string | null;
   display_name: string;
   department_id: string | null;
   bio: string;
@@ -38,8 +40,7 @@ type UserRow = {
 };
 
 const SESSION_DAYS = 30;
-const VERIFICATION_DAYS = 365;
-const REVERIFICATION_MESSAGE = '北邮身份验证已过期，请重新完成身份验证';
+const USERNAME_PATTERN = /^[a-z0-9_]{3,20}$/;
 const AUTH_WINDOW_MS = 15 * 60 * 1000;
 const AUTH_MAX_FAILURES = 5;
 const DUMMY_PASSWORD_CREDENTIAL = {
@@ -48,6 +49,10 @@ const DUMMY_PASSWORD_CREDENTIAL = {
   iterations: 100_000,
 };
 
+function normalizeUsername(value: string): string {
+  return value.trim().toLowerCase();
+}
+
 function futureIso(now: Date, days: number): string {
   return new Date(now.getTime() + days * 86_400_000).toISOString();
 }
@@ -55,6 +60,7 @@ function futureIso(now: Date, days: number): string {
 function mapUser(row: UserRow): PublicUser {
   return {
     id: row.id,
+    username: row.username,
     displayName: row.display_name,
     departmentId: row.department_id,
     bio: row.bio,
@@ -65,7 +71,11 @@ function mapUser(row: UserRow): PublicUser {
 }
 
 export class AccountService {
-  constructor(private readonly dependencies: RuntimeDependencies) {}
+  private readonly invites: InviteService;
+
+  constructor(private readonly dependencies: RuntimeDependencies) {
+    this.invites = new InviteService(dependencies.database, dependencies.clock);
+  }
 
   async completeVerifiedIdentityHash(input: {
     studentIdHash: string;
@@ -74,78 +84,20 @@ export class AccountService {
     departmentId: string | null;
     allowExistingSession?: boolean;
   }): Promise<{ accessToken: string; expiresAt: string; user: PublicUser }> {
+    // Legacy CAS login is kept only for accounts that predate username-only
+    // registration. It can never create or upgrade an account (ADR-023).
     const identityHash = input.studentIdHash;
     const existing = await this.dependencies.database.execute<{ user_id: string }>({
       sql: 'SELECT user_id FROM student_identities WHERE student_id_hash = ?',
       params: [identityHash],
     });
-    if (existing.rows.length > 0) {
-      if (input.allowExistingSession) {
-        const renewed = await this.renewIdentityIfExpired(identityHash);
-        if (renewed) return renewed;
-        return this.createSessionForVerifiedIdentityHash(identityHash);
-      }
+    if (existing.rows.length === 0) {
+      throw new DomainError('invite_registration_required', '新账户必须使用邀请码注册', 403);
+    }
+    if (!input.allowExistingSession) {
       throw new DomainError('student_already_registered', '该学生身份已经注册', 409);
     }
-    await this.assertAuthAllowed(identityHash);
-
-    if (!input.displayName || !input.appPassword) {
-      throw new DomainError('cas_registration_required', '认证成功。首次使用请补充 FStudy 显示名称和本系统密码。', 409);
-    }
-
-    const now = (this.dependencies.clock ?? (() => new Date()))();
-    const userId = crypto.randomUUID();
-    const token = createOpaqueToken();
-    const credential = await createPasswordCredential(input.appPassword);
-    const createdAt = now.toISOString();
-    const sessionExpiresAt = futureIso(now, SESSION_DAYS);
-    const verificationExpiresAt = futureIso(now, VERIFICATION_DAYS);
-
-    try {
-      await this.dependencies.database.batch([
-        {
-          sql: `INSERT INTO users
-            (id, display_name, department_id, bio, discoverable, schedule_visibility, status, created_at)
-            VALUES (?, ?, ?, '', 0, 'busy_only', 'active', ?)`,
-          params: [userId, input.displayName, input.departmentId, createdAt],
-        },
-        {
-          sql: `INSERT INTO student_identities
-            (user_id, student_id_hash, verified_department_id, verified_at, expires_at)
-            VALUES (?, ?, ?, ?, ?)`,
-          params: [userId, identityHash, input.departmentId, createdAt, verificationExpiresAt],
-        },
-        {
-          sql: `INSERT INTO credentials
-            (user_id, password_hash, password_salt, password_iterations) VALUES (?, ?, ?, ?)`,
-          params: [userId, credential.hash, credential.salt, credential.iterations],
-        },
-        {
-          sql: `INSERT INTO sessions (id, user_id, token_hash, expires_at, created_at)
-            VALUES (?, ?, ?, ?, ?)`,
-          params: [crypto.randomUUID(), userId, await hashToken(token), sessionExpiresAt, createdAt],
-        },
-      ]);
-    } catch (error) {
-      if (String(error).toLowerCase().includes('unique')) {
-        throw new DomainError('student_already_registered', '该学生身份已经注册', 409);
-      }
-      throw error;
-    }
-
-    return {
-      accessToken: token,
-      expiresAt: sessionExpiresAt,
-      user: {
-        id: userId,
-        displayName: input.displayName,
-        departmentId: input.departmentId,
-        bio: '',
-        discoverable: false,
-        scheduleVisibility: 'busy_only',
-        verifiedAt: createdAt,
-      },
-    };
+    return this.createSessionForVerifiedIdentityHash(identityHash);
   }
 
   private now(): Date {
@@ -153,8 +105,8 @@ export class AccountService {
   }
 
   async createSessionForVerifiedIdentityHash(studentIdHash: string) {
-    const result = await this.dependencies.database.execute<{ user_id: string; status: string; expires_at: string }>({
-      sql: `SELECT i.user_id, u.status, i.expires_at FROM student_identities i
+    const result = await this.dependencies.database.execute<{ user_id: string; status: string }>({
+      sql: `SELECT i.user_id, u.status FROM student_identities i
             JOIN users u ON u.id = i.user_id WHERE i.student_id_hash = ?`,
       params: [studentIdHash],
     });
@@ -163,9 +115,6 @@ export class AccountService {
       throw new DomainError('student_not_registered', '该身份尚未创建 FStudy 账户', 404);
     }
     const now = this.now();
-    if (new Date(row.expires_at) <= now) {
-      throw new DomainError('identity_reverification_required', REVERIFICATION_MESSAGE, 403);
-    }
     const token = createOpaqueToken();
     const expiresAt = futureIso(now, SESSION_DAYS);
     await this.dependencies.database.execute({
@@ -176,12 +125,12 @@ export class AccountService {
     return { accessToken: token, expiresAt, user: await this.getUser(row.user_id) };
   }
 
-  private async assertAuthAllowed(identityHash: string): Promise<void> {
+  private async assertAuthAllowed(throttleKey: string): Promise<void> {
     const result = await this.dependencies.database.execute<{
       blocked_until: string | null;
     }>({
       sql: 'SELECT blocked_until FROM auth_throttles WHERE throttle_key = ?',
-      params: [identityHash],
+      params: [throttleKey],
     });
     const blockedUntil = result.rows[0]?.blocked_until;
     const now = (this.dependencies.clock ?? (() => new Date()))();
@@ -194,14 +143,14 @@ export class AccountService {
     }
   }
 
-  private async recordAuthFailure(identityHash: string): Promise<void> {
+  private async recordAuthFailure(throttleKey: string): Promise<void> {
     const now = (this.dependencies.clock ?? (() => new Date()))();
     const existing = await this.dependencies.database.execute<{
       failure_count: number;
       window_started_at: string;
     }>({
       sql: 'SELECT failure_count, window_started_at FROM auth_throttles WHERE throttle_key = ?',
-      params: [identityHash],
+      params: [throttleKey],
     });
     const row = existing.rows[0];
     const inWindow = row && now.getTime() - new Date(row.window_started_at).getTime() < AUTH_WINDOW_MS;
@@ -224,61 +173,108 @@ export class AccountService {
               window_started_at = excluded.window_started_at,
               blocked_until = excluded.blocked_until,
               updated_at = excluded.updated_at`,
-        params: [identityHash, failures, windowStartedAt, blockedUntil, now.toISOString()],
+        params: [throttleKey, failures, windowStartedAt, blockedUntil, now.toISOString()],
       },
     ]);
   }
 
-  private async clearAuthFailures(identityHash: string): Promise<void> {
+  private async clearAuthFailures(throttleKey: string): Promise<void> {
     await this.dependencies.database.execute({
       sql: 'DELETE FROM auth_throttles WHERE throttle_key = ?',
-      params: [identityHash],
+      params: [throttleKey],
     });
   }
 
   async register(input: {
-    studentId: string;
-    schoolPassword: string;
+    username: string;
+    email: string;
     appPassword: string;
-    displayName: string;
+    displayName?: string | undefined;
     departmentId: string | null;
+    inviteCode: string;
   }): Promise<{ accessToken: string; expiresAt: string; user: PublicUser }> {
-    const inputIdentityHash = await hashStudentId(input.studentId, this.dependencies.studentIdPepper);
-    await this.assertAuthAllowed(inputIdentityHash);
-    let verified;
+    const username = normalizeUsername(input.username);
+    if (!USERNAME_PATTERN.test(username)) {
+      throw new DomainError('invalid_username', '用户名需为 3–20 位字母、数字或下划线', 400);
+    }
+    const displayName = input.displayName?.trim() || input.username.trim();
+    const email = input.email.trim().toLowerCase();
+    const takenUsername = await this.dependencies.database.execute({
+      sql: 'SELECT 1 FROM users WHERE username = ?',
+      params: [username],
+    });
+    if (takenUsername.rows.length > 0) {
+      throw new DomainError('username_already_registered', '该用户名已经被使用', 409);
+    }
+    const takenEmail = await this.dependencies.database.execute({
+      sql: 'SELECT 1 FROM user_emails WHERE email = ?',
+      params: [email],
+    });
+    if (takenEmail.rows.length > 0) {
+      throw new DomainError('email_already_registered', '该邮箱已经注册', 409);
+    }
+
+    const now = this.now();
+    const userId = crypto.randomUUID();
+    const token = createOpaqueToken();
+    const credential = await createPasswordCredential(input.appPassword);
+    const createdAt = now.toISOString();
+    const sessionExpiresAt = futureIso(now, SESSION_DAYS);
+    const claim = await this.invites.claim(input.inviteCode, userId);
     try {
-      verified = await this.dependencies.studentVerifier.verify({
-        studentId: input.studentId,
-        password: input.schoolPassword,
-        claimedDepartmentId: input.departmentId,
-      });
+      await this.dependencies.database.batch([
+        {
+          sql: `INSERT INTO users
+                (id, username, display_name, department_id, bio, discoverable, schedule_visibility, status, created_at)
+                VALUES (?, ?, ?, ?, '', 0, 'busy_only', 'active', ?)`,
+          params: [userId, username, displayName, input.departmentId, createdAt],
+        },
+        {
+          sql: 'INSERT INTO credentials (user_id, password_hash, password_salt, password_iterations) VALUES (?, ?, ?, ?)',
+          params: [userId, credential.hash, credential.salt, credential.iterations],
+        },
+        {
+          sql: 'INSERT INTO user_emails (user_id, email, created_at) VALUES (?, ?, ?)',
+          params: [userId, email, createdAt],
+        },
+        {
+          sql: 'INSERT INTO sessions (id, user_id, token_hash, expires_at, created_at) VALUES (?, ?, ?, ?, ?)',
+          params: [crypto.randomUUID(), userId, await hashToken(token), sessionExpiresAt, createdAt],
+        },
+      ]);
     } catch (error) {
-      if (error instanceof DomainError && error.status === 401) {
-        await this.recordAuthFailure(inputIdentityHash);
+      await this.invites.release(claim);
+      if (String(error).toLowerCase().includes('unique')) {
+        throw new DomainError('registration_conflict', '该用户名或邮箱已经注册', 409);
       }
       throw error;
     }
-    await this.clearAuthFailures(inputIdentityHash);
-    const departmentId = verified.departmentId ?? input.departmentId;
-    return this.completeVerifiedIdentityHash({
-      studentIdHash: await hashStudentId(verified.studentId, this.dependencies.studentIdPepper),
-      displayName: input.displayName,
-      appPassword: input.appPassword,
-      departmentId,
-    });
+    return {
+      accessToken: token,
+      expiresAt: sessionExpiresAt,
+      user: {
+        id: userId,
+        username,
+        displayName,
+        departmentId: input.departmentId,
+        bio: '',
+        discoverable: false,
+        scheduleVisibility: 'busy_only',
+        verifiedAt: createdAt,
+      },
+    };
   }
 
-  async login(input: { studentId: string; appPassword: string }) {
-    const identityHash = await hashStudentId(input.studentId, this.dependencies.studentIdPepper);
-    await this.assertAuthAllowed(identityHash);
+  async login(input: { username: string; appPassword: string }) {
+    const username = normalizeUsername(input.username);
+    const throttleKey = `login:${await hashLoginIdentifier(username)}`;
+    await this.assertAuthAllowed(throttleKey);
     const result = await this.dependencies.database.execute<LoginRow>({
-      sql: `SELECT c.user_id, c.password_hash, c.password_salt, c.password_iterations, u.status,
-              i.expires_at AS identity_expires_at
-            FROM student_identities i
-            JOIN credentials c ON c.user_id = i.user_id
-            JOIN users u ON u.id = i.user_id
-            WHERE i.student_id_hash = ?`,
-      params: [identityHash],
+      sql: `SELECT c.user_id, c.password_hash, c.password_salt, c.password_iterations, u.status
+            FROM users u
+            JOIN credentials c ON c.user_id = u.id
+            WHERE u.username = ?`,
+      params: [username],
     });
     const row = result.rows[0];
     const passwordMatches = await verifyPassword(
@@ -296,13 +292,10 @@ export class AccountService {
       row.status !== 'active' ||
       !passwordMatches
     ) {
-      await this.recordAuthFailure(identityHash);
-      throw new DomainError('invalid_credentials', '学号或本系统密码错误', 401);
+      await this.recordAuthFailure(throttleKey);
+      throw new DomainError('invalid_credentials', '用户名或本系统密码错误', 401);
     }
-    await this.clearAuthFailures(identityHash);
-    if (new Date(row.identity_expires_at) <= this.now()) {
-      throw new DomainError('identity_reverification_required', REVERIFICATION_MESSAGE, 403);
-    }
+    await this.clearAuthFailures(throttleKey);
 
     const token = createOpaqueToken();
     const now = this.now();
@@ -315,32 +308,15 @@ export class AccountService {
     return { accessToken: token, expiresAt, user: await this.getUser(row.user_id) };
   }
 
-  /** Renews an expired identity after a fresh school verification; returns null when not expired. */
-  async renewIdentityIfExpired(studentIdHash: string) {
-    const now = this.now();
-    const result = await this.dependencies.database.execute<{ expires_at: string }>({
-      sql: 'SELECT expires_at FROM student_identities WHERE student_id_hash = ?',
-      params: [studentIdHash],
-    });
-    const row = result.rows[0];
-    if (!row || new Date(row.expires_at) > now) return null;
-    await this.dependencies.database.execute({
-      sql: 'UPDATE student_identities SET verified_at = ?, expires_at = ? WHERE student_id_hash = ?',
-      params: [now.toISOString(), futureIso(now, VERIFICATION_DAYS), studentIdHash],
-    });
-    return this.createSessionForVerifiedIdentityHash(studentIdHash);
-  }
-
   async authenticate(token: string | null): Promise<string> {
     if (!token) throw new DomainError('authentication_required', '需要登录', 401);
     const now = this.now().toISOString();
     const result = await this.dependencies.database.execute<{ user_id: string }>({
       sql: `SELECT s.user_id FROM sessions s
             JOIN users u ON u.id = s.user_id
-            JOIN student_identities i ON i.user_id = s.user_id
             WHERE s.token_hash = ? AND s.revoked_at IS NULL AND s.expires_at > ?
-              AND u.status = 'active' AND i.expires_at > ?`,
-      params: [await hashToken(token), now, now],
+              AND u.status = 'active'`,
+      params: [await hashToken(token), now],
     });
     const row = result.rows[0];
     if (!row) throw new DomainError('invalid_session', '登录已失效', 401);
@@ -357,11 +333,19 @@ export class AccountService {
     });
   }
 
+  async getEmail(userId: string): Promise<string | null> {
+    const result = await this.dependencies.database.execute<{ email: string }>({
+      sql: 'SELECT email FROM user_emails WHERE user_id = ?',
+      params: [userId],
+    });
+    return result.rows[0]?.email ?? null;
+  }
+
   async getUser(userId: string): Promise<PublicUser> {
     const result = await this.dependencies.database.execute<UserRow>({
-      sql: `SELECT u.id, u.display_name, u.department_id, u.bio, u.discoverable,
-                   u.schedule_visibility, i.verified_at
-            FROM users u JOIN student_identities i ON i.user_id = u.id WHERE u.id = ?`,
+      sql: `SELECT u.id, u.username, u.display_name, u.department_id, u.bio, u.discoverable,
+                   u.schedule_visibility, COALESCE(i.verified_at, u.created_at) AS verified_at
+            FROM users u LEFT JOIN student_identities i ON i.user_id = u.id WHERE u.id = ?`,
       params: [userId],
     });
     const row = result.rows[0];

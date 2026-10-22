@@ -4,7 +4,7 @@
 
 - Hono API，同一份业务代码运行于 Node.js 和 Cloudflare Workers
 - 本地 `node:sqlite` 与生产 Cloudflare D1
-- 开发环境学生身份验证器（不会连接学校认证）
+- 邀请码注册（每人每月可生成 5 个邀请码）与邮箱记录；不验证学生身份（ADR-021）
 - 注册、登录、个人资料、标签、手动课表和待交作业
 - OpenAPI 文档端点
 
@@ -22,12 +22,20 @@ pnpm dev
 
 API 默认监听 `http://localhost:8787`，OpenAPI 文档位于 `/openapi.json`。
 
-开发注册使用任意 8–12 位数字学号，学校认证测试密码固定为 `dev-password`。此验证器只能在 `AUTH_MODE=dev` 时运行。
+注册需要邀请码。本地没有预置邀请码，先用运营账号生成一个（需要已配置 `ADMIN_BOOTSTRAP_USERNAME` 与 `ADMIN_BOOTSTRAP_PASSWORD`）：
 
 ```bash
-curl -X POST http://localhost:8787/v1/auth/register \
-  -H 'content-type: application/json' \
-  -d '{"studentId":"20260001","schoolPassword":"dev-password","appPassword":"correct-horse-battery","displayName":"测试同学","departmentId":"computer"}'
+TOKEN=$(curl -s -X POST http://localhost:8787/v1/admin/auth/login -H 'content-type: application/json' \
+  -d '{"username":"operator","password":"<ADMIN_BOOTSTRAP_PASSWORD>"}' | node -pe 'JSON.parse(require("fs").readFileSync(0)).accessToken')
+CODE=$(curl -s -X POST http://localhost:8787/v1/admin/invites -H "authorization: Bearer $TOKEN" \
+  -H 'content-type: application/json' -d '{}' | node -pe 'JSON.parse(require("fs").readFileSync(0)).code')
+```
+
+然后注册（用户名 3–20 位字母、数字或下划线；邮箱会被记录但不验证）：
+
+```bash
+curl -X POST http://localhost:8787/v1/auth/register -H 'content-type: application/json' \
+  -d "{\"username\":\"student01\",\"email\":\"student@example.edu\",\"appPassword\":\"correct-horse-battery\",\"departmentId\":\"computer\",\"inviteCode\":\"$CODE\"}"
 ```
 
 响应中的 `accessToken` 作为后续请求的 Bearer Token。
@@ -36,7 +44,7 @@ curl -X POST http://localhost:8787/v1/auth/register \
 
 1. 创建数据库：`pnpm --filter @fstudy/api exec wrangler d1 create fstudy`。
 2. 在 `apps/api/wrangler.jsonc` 中填写返回的 D1 `database_id`。
-3. 写入不可公开且长度充足的学号哈希 pepper：
+3. 写入不可公开且长度充足的 `STUDENT_ID_PEPPER`（仅保留给已停用的 CAS 兼容代码；新账户不使用学号）：
 
    ```bash
    pnpm --filter @fstudy/api exec wrangler secret put STUDENT_ID_PEPPER
@@ -46,13 +54,11 @@ curl -X POST http://localhost:8787/v1/auth/register \
 5. 执行 `pnpm db:migrate:remote`。
 6. 配置生产认证方式后再部署：`pnpm --filter @fstudy/api deploy`。
 
-生产环境默认拒绝注册；真实 BUPT 验证尚未启用，避免在未完成安全和网络验证前接触真实统一认证密码。
+生产环境默认拒绝注册：`wrangler.jsonc` 不设置 `INVITE_REGISTRATION_ENABLED`。开放注册前必须获得明确批准。
 
-### BUPT CAS-only 验证（实验性）
+### 北邮 CAS（已停用）
 
-API 提供实验性的 `AUTH_MODE=bupt-cas` 验证器，只使用 `auth.bupt.edu.cn` 的 CAS 登录与 `serviceValidate`，不请求 ucloud token/角色接口。学校密码只在注册请求内存中用于这次验证，不写日志、不保存；学号仍只保存 HMAC，姓名不落库。验证码暂不支持，CAS 要求验证码时会安全失败并提示稍后处理。部署到公网前仍需确认学校允许此类集成，并完成真实网络、隐私告知和安全评审。此模式不得用于生产开放注册。
-
-第三方库参考：[byrdocs/bupt-auth](https://github.com/byrdocs/bupt-auth)，其 MIT 许可；FStudy 没有引入该库代码，CAS-only 流程由本仓库适配器独立实现。第三方库的 ucloud token/角色流程不使用。
+当前不验证学生身份（ADR-021）。浏览器跳转式 CAS 因北邮拒绝服务授权而关闭（`CAS_LOGIN_ENABLED` 未开启）。验证码与学校密码流程已注释停用，相关代码仍保留在仓库中，恢复前需要新的明确批准和安全评审。第三方库 [byrdocs/bupt-auth](https://github.com/byrdocs/bupt-auth) 不是官方接口，本仓库没有引入其代码，其 UCloud token 与角色流程不使用。
 
 ## 管理控制台（本地开发）
 
@@ -80,7 +86,8 @@ python3 -m http.server 8081 --bind 127.0.0.1 --directory apps/admin
 
 完整的请求/响应定义见 [docs/knowledge/apps/api/src/http/README.md](docs/knowledge/apps/api/src/http/README.md)。主要分组如下：
 
-- 认证：`POST /v1/auth/register`、`/login`、`/logout`；北邮 CAS：`/v1/auth/cas/*`、`/v1/auth/cas/password/*`（预发实验，默认关闭）
+- 认证：`POST /v1/auth/register`（需要邀请码与邮箱）、`/login`、`/logout`；北邮 CAS：`/v1/auth/cas/*`（浏览器登录，已关闭）；验证码路由已注释停用
+- 邀请码：`GET/POST /v1/me/invites`（每人每月 5 个）；运营：`POST /v1/admin/invites`
 - 个人资料与设置：`GET/PATCH /v1/me`、`GET/PUT /v1/me/academic-settings`、`GET/PUT /v1/me/tags`、`GET /v1/tags`（需要登录）
 - 课表与学习：`GET/POST /v1/courses`、`GET/POST /v1/assignments`、`PATCH /v1/assignments/:id/completion`、`GET/POST /v1/plans`、`PATCH /v1/plans/:id/completion`
 - 社交：`GET /v1/discover`、`GET /v1/friends`、`POST /v1/friend-requests`、`PATCH /v1/friend-requests/:id`、`GET /v1/availability`、`GET/POST /v1/availability-invites`、`PATCH /v1/availability-invites/:id`
@@ -97,4 +104,69 @@ Flutter 客户端当前支持 Web/PWA 与 Android 工程结构；本阶段以 We
 
 GitHub Actions 在推送到 `main`、Pull Request 和手动触发时执行 API 类型检查/测试/构建、后台 JavaScript 语法检查，以及 Flutter 格式检查、分析、行为测试和 Web Release 构建。Android 打包暂不进入 CI，遵循当前 Web 优先迭代约束。
 
-本地 SQLite 开发入口会自动应用 `0001`–`0013` 迁移（远程预发历史与仓库文件的一致性见 `docs/knowledge/apps/api/migrations/README.md`）；Cloudflare D1 生产部署需显式执行 `pnpm db:migrate:remote`。
+本地 SQLite 开发入口会自动应用 `0001`–`0015` 迁移；Cloudflare D1 生产部署需显式执行 `pnpm db:migrate:remote`。预发迁移和部署状态见 `docs/knowledge/apps/api/migrations/README.md` 与 `AGENT.md`。
+
+## Android 打包与签名
+
+签名材料**不要提交到 Git**。`apps/mobile/android/key.properties`、`*.jks`、`*.keystore` 已在 `.gitignore` 中。
+
+首次创建上传密钥（务必离线备份；丢失后无法更新已发布应用）：
+
+```bash
+cd apps/mobile
+keytool -genkeypair -v   -keystore android/app/upload-keystore.jks   -keyalg RSA -keysize 2048 -validity 10000   -alias fstudy
+cp android/key.properties.example android/key.properties
+# 编辑 android/key.properties，填入真实密码与 storeFile=upload-keystore.jks
+```
+
+构建 Release APK（必须指定 API 地址，否则 Android 会回退到模拟器地址 `http://10.0.2.2:8787`）：
+
+```bash
+flutter build apk --release   --dart-define=API_BASE_URL=https://fstudy-api-staging.a07450865.workers.dev
+```
+
+产物：`apps/mobile/build/app/outputs/flutter-apk/app-release.apk`。
+
+按 ABI 拆分或构建 AAB：
+
+```bash
+flutter build apk --release --split-per-abi \
+  --dart-define=API_BASE_URL=https://fstudy-api-staging.a07450865.workers.dev
+flutter build appbundle --release \
+  --dart-define=API_BASE_URL=https://fstudy-api-staging.a07450865.workers.dev
+```
+
+没有 `key.properties` 时构建会自动回退到 debug 签名，仅用于本地 `flutter run --release`，**不能发布**。主 Manifest 已声明 `INTERNET` 权限，Release 构建可以联网。
+
+## 上传到 GitHub
+
+仓库已包含 `.gitignore`、GitHub Actions CI 和知识库校验。上传前确认没有真实密钥：
+
+```bash
+git status
+git grep -nE "STUDENT_ID_PEPPER=.+|ADMIN_BOOTSTRAP_PASSWORD=.+|storePassword=.+" -- . ':!*.example'
+```
+
+推送到空仓库：
+
+```bash
+git remote add origin git@github.com:<你的账号>/<仓库名>.git
+git branch -M main
+git push -u origin main
+```
+
+CI 会执行 API 检查/测试/构建、知识库校验、管理台语法检查，以及 Flutter 格式检查、分析、测试和 Web Release 构建。Cloudflare 部署凭据不要写进仓库，应放在 GitHub Actions Secrets（当前工作流不自动部署）。
+
+## 生产发布检查表
+
+以下步骤尚未执行，生产环境仍使用 `apps/api/wrangler.jsonc` 中的占位配置：
+
+1. 创建生产 D1，填写 `database_id`。
+2. 写入 secrets：`STUDENT_ID_PEPPER`（至少 32 字符；仅历史 CAS 兼容使用）、`ADMIN_BOOTSTRAP_USERNAME`、`ADMIN_BOOTSTRAP_PASSWORD`。
+3. 设置 `ALLOWED_ORIGINS`；需要开放注册时显式设置 `INVITE_REGISTRATION_ENABLED: "true"`。
+4. 执行 `pnpm db:migrate:remote`（会应用 `0001`–`0015`）。
+5. 部署 API：`pnpm --filter @fstudy/api deploy`。
+6. 构建 Web 并部署到生产 Pages，配置 SPA 路由回退到 `index.html`。
+7. 用真实 keystore 构建并签名 Android APK。
+8. 验证健康检查、注册、登录、邀请码和个人资料流程。
+

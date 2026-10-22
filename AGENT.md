@@ -24,7 +24,7 @@ Web is the active rapid-iteration target. Until the user explicitly re-enables A
 
 The first usable release focuses on:
 
-1. BUPT-only registration and unique student identity
+1. Invite-only registration and a unique username
 2. Manual timetable entry, including odd/even weeks
 3. Assignments and completion state
 4. Schedule visibility, custom plans, reminders, and shared-free-time invitations
@@ -126,24 +126,24 @@ After a change, update the affected knowledge doc in the same change, and record
 
 These constraints are mandatory:
 
-- Never persist raw student IDs.
+- Never persist raw student IDs for new accounts. `student_identities.student_id_hash` is a legacy/reserved column only (ADR-023).
 - Never persist real names unless a later explicit product decision requires them.
 - Never persist school passwords or school tokens. Do not persist school cookies/session state durably.
-- Exception explicitly approved by the user for *staging experiment only*: a CAS password+captcha flow may briefly retain the CAS cookie/execution state encrypted with AES-GCM in D1, with a five-minute TTL, one-time challenge, strict rate limits, and immediate ciphertext clearing on completion/failure. Never enable this in production. The encryption key must be a Wrangler secret, never a file or Git value.
-- Student IDs are represented using an HMAC with a secret pepper.
+- The staging-only CAS password + captcha exception (2026-10-14 approval) is **disabled**. Its code is commented out and must not be re-enabled without a new explicit approval (ADR-021).
+- Legacy student IDs are represented using an HMAC with a secret pepper. New accounts use `users.username` (lowercase, unique) and never write to `student_identities`.
 - Application passwords use PBKDF2 credentials.
 - Do not log passwords, access tokens, peppers, credentials, or complete authentication payloads.
 - Do not weaken TLS validation or bypass certificate checks.
 - Never commit `.env`, `.dev.vars`, D1 secrets, signing keys, keystores, `key.properties`, or passwords.
-- Production registration remains disabled. Do not deploy or enable any student registration in production.
-- Local development uses `DevelopmentStudentVerifier`; its fixed school test password is `dev-password`.
-- Production `AUTH_MODE` defaults to `disabled`.
-- Student identities expire 365 days after verification (ADR-018). Expired identities cannot log in, their sessions stop working, and they are excluded from discovery and friend/availability flows until re-verified through a fresh school verification.
+- Registration requires an invite code and an email (ADR-021). Production registration stays disabled (`INVITE_REGISTRATION_ENABLED` is not set in `wrangler.jsonc`). Do not enable it in production without explicit approval.
+- Student identity is self-declared and not verified against the school (ADR-021). School password, captcha, and CAS registration code is commented out.
+- Emails are recorded in `user_emails` (ADR-021). Do not return another user's email, and do not publish emails.
+- Student identities expire 365 days after verification (ADR-018). Renewal currently has no path after ADR-021; this is an open decision.
 - Friend schedule visibility has four levels (ADR-019). Plan notes are never returned to other users.
 
-The user does not plan to obtain BUPT authorization. The public `byrdocs/bupt-auth` project is third-party code, not an official BUPT API. Its `cas: true` mode validates against CAS but still takes the user's password in the calling process; its default mode additionally exchanges UCloud tokens and roles and must not be used. Do not describe either mode as password-blind OAuth.
+School identity verification (CAS, captcha, school password) is disabled as of 2026-10-14. The reasoning and the open questions are in ADR-006, ADR-007, and ADR-021. The public `byrdocs/bupt-auth` project is third-party code and is not an official BUPT API. Do not use its UCloud token or role flows.
 
-The user explicitly approved an experimental **staging-only direct CAS password + manual captcha** option. It forwards the submitted school password from the staging Worker to `auth.bupt.edu.cn` over HTTPS, does not log/store the password, and must disclose this to testers. It temporarily stores only encrypted CAS session cookie/execution state as described above. Captcha OCR, bypass, retry loops, and automated solving are prohibited. Production remains closed. A browser-redirect CAS flow was attempted but BUPT replied: `未认证授权的服务，不允许使用CAS来认证此目标应用。`; the staging Worker redirect feature flag remains false. Do not attempt to bypass BUPT service registration.
+The earlier staging-only captcha experiment (ADR-007) is superseded. Do not revive it. Do not ask for or submit real school credentials.
 
 ## Local Development
 
@@ -265,62 +265,50 @@ The intended production backend is Cloudflare Workers + D1 using the same backen
 
 Before deployment:
 
-1. Create the D1 database.
-2. Replace `REPLACE_WITH_D1_DATABASE_ID` in `apps/api/wrangler.jsonc`.
-3. Store `STUDENT_ID_PEPPER` with Wrangler secrets.
-4. Apply remote migrations.
-5. Implement and review a safe production student verifier.
-6. Explicitly choose the production `AUTH_MODE`.
-7. Configure Web SPA route fallback to `index.html`.
+1. Create the production D1 database and replace `REPLACE_WITH_D1_DATABASE_ID` in `apps/api/wrangler.jsonc`.
+2. Store secrets with Wrangler: `STUDENT_ID_PEPPER` (legacy CAS only), `ADMIN_BOOTSTRAP_USERNAME`, `ADMIN_BOOTSTRAP_PASSWORD`.
+3. Set `ALLOWED_ORIGINS` and `INVITE_REGISTRATION_ENABLED` in `wrangler.jsonc` before deploying (registration is closed unless `INVITE_REGISTRATION_ENABLED` is `"true"`).
+4. Apply remote migrations (`0001`–`0015`) with explicit approval.
+5. Configure Web SPA route fallback to `index.html`.
+6. Build the Android release APK with a real keystore and `--dart-define=API_BASE_URL=<production API>`.
 
-Never deploy with the development pepper or development student verifier.
+Never deploy with the development pepper, placeholder D1 ID, or debug Android signing.
 
-## Handoff: staging, identity, notifications (2026-10-14)
+## Handoff: username accounts and release prep (2026-10-22)
 
-Read this section before continuing the current unfinished work.
+Read this section before continuing. It supersedes earlier handoff text about captcha, school-password registration, and student-ID accounts.
+
+### Repository state
+
+- Migration `0015_usernames.sql` adds `users.username`, backfills legacy accounts, and creates a unique index. `student_identities` remains as a reserved table. It has **not** been applied to remote staging or production.
+- Android release signing is configured from `apps/mobile/android/key.properties` with a debug fallback; `key.properties` and keystores are git-ignored.
+- Production config `apps/api/wrangler.jsonc` is still a template (placeholder D1 ID and origin). No production deploy has been performed.
+- Verification after the username change: API `pnpm check`, `pnpm test` (32 tests), `pnpm build`, `pnpm knowledge:check`; Flutter `dart format`, `flutter analyze`, `flutter test` (32 tests), `flutter build web --release`.
+
+### Identity model (ADR-021, ADR-023)
+
+- Registration: username (3–20 letters/digits/underscore, lowercase, unique), email (recorded in `user_emails`, unverified), app password, optional display name (defaults to username), and an invite code. No student ID and no school verification.
+- Login uses username (case-insensitive) + app password. `student_identities` is not written for new accounts.
+- Invite codes: each user may generate 5 per Asia/Shanghai calendar month (`/v1/me/invites`). Operators generate codes with `/v1/admin/invites`, which do not count against any user.
+- Invite codes: each user may generate 5 per Asia/Shanghai calendar month (`/v1/me/invites`). Operators generate codes with `/v1/admin/invites`, which do not count against any user.
+- `INVITE_REGISTRATION_ENABLED`: `true` in `wrangler.staging.jsonc`. Not set in `wrangler.jsonc` (production), so production registration is closed.
+- School verification code (captcha, school-password challenge, `verify`) is commented out with a `[2026-10-14 已停用]` marker. Browser CAS login code remains and stays disabled (`CAS_LOGIN_ENABLED=false`).
+- Identity expiry is no longer relevant: new accounts have no `student_identities` row (ADR-022, ADR-023). Usernames are self-declared and unverified; reassess identity trust before public launch.
 
 ### Staging environment (Cloudflare)
 
-- Cloudflare account used by Wrangler is the user's personal account. Do not print secrets or paste them into chat.
+- The Wrangler account is the user's personal account. Do not print secrets or paste them into chat.
 - Student Pages: `https://fstudy-student-staging.pages.dev`
 - API Worker: `https://fstudy-api-staging.a07450865.workers.dev`
-- D1 database: `fstudy-staging`, ID is in `apps/api/wrangler.staging.jsonc`.
-- Production config `apps/api/wrangler.jsonc` remains untouched, `AUTH_MODE=disabled`, with placeholder D1 ID/origin. Never deploy production config.
-- Staging config `apps/api/wrangler.staging.jsonc` currently has `AUTH_MODE=bupt-cas`, `SCHOOL_PASSWORD_REGISTRATION_ENABLED=false`, `CAS_LOGIN_ENABLED=false`. This is intentionally closed because captcha-image retrieval is not working reliably. Keep it closed until the captcha display path is proved with a mock and then a user-approved staging test.
-- `STUDENT_ID_PEPPER` and `CAS_STATE_ENCRYPTION_KEY` have been uploaded as Wrangler secrets. Secret values are not in the repo; never list/output secret contents.
-- D1 remote migration history has reached `0013_cas_challenge_attempts.sql` (verified 2026-10-14 via `d1_migrations`). The remote `cas_password_challenges` table already contains `attempt_count` (created by `0012`), and `0013` only adds the `cas_password_challenges_attempts_idx` index. Remote schema matches the repository files. Never reset the D1; inspect remote history/schema before any further changes.
-- A prior staging request for a fictional student ID returned `school_auth_captcha_required`; no real credentials were sent and no student was created from that request.
+- D1 database: `fstudy-staging`; its ID is in `apps/api/wrangler.staging.jsonc`.
+- Production config `apps/api/wrangler.jsonc` stays unchanged, with placeholder D1 ID and origin. Never deploy it without approval.
+- `STUDENT_ID_PEPPER` is a Wrangler secret. `CAS_STATE_ENCRYPTION_KEY` is no longer read by the code. Never list or output secret contents.
+- D1 remote migration history reached `0014` on staging; `0015` is pending. Always check remote history and schema before any further migration.
 
-### Current uncommitted work
+### Brevo / email
 
-All current changes are uncommitted; preserve them. They include:
-
-- `0010_notifications.sql`, `0011_cas_browser_login.sql`, `0012_cas_password_challenges.sql`, `0013_cas_challenge_attempts.sql` and notification service/API/UI.
-- CAS verifier, browser CAS start/callback/complete endpoints, encrypted password-challenge state, rate limiting, UI wiring.
-- Profile changes: dark mode, safer logout; notifications bell/inbox.
-- `apps/api/wrangler.staging.jsonc` has per-staging settings. Do not accidentally commit secrets (it contains only resource IDs/URLs/config flags).
-
-Latest complete local verification before handoff: API `pnpm check`, 30 API tests, `pnpm build`; Flutter analyze and 31 widget tests; Web Release build. Recent test runs have exposed migration-fixture mismatches (`no such column: student_id_hash`, duplicate `attempt_count`); these are being corrected. Re-run the full suites before claiming green.
-
-### CAS captcha implementation is NOT ready for users
-
-- `BuptCasStudentVerifier.beginPasswordChallenge()` currently tries to extract the dynamic captcha ID by scraping CAS HTML / `login-normal.html` script. This failed: staging challenge returned a valid challenge ID but `captchaImage: null`.
-- Public CAS shell HTML has hidden `#captcha` and iframe `https://auth.bupt.edu.cn/authserver/cas/login-normal.html`; `login-normal.html` loads `lib/index-normal.css` plus obfuscated anti-bot JS; the browser performs dynamic calls to populate `config.captcha`. BrowserAct headless got HTTP 400 on the iframe and no XHR. Raw public fetch showed the captcha is initialized dynamically; current parser does not reproduce that endpoint yet.
-- Do NOT enable staging registration while `captchaImage` is null. Don't ask the user for real credentials to diagnose this. User authorized one staging challenge test using a fictional student ID with no password submission; that returned null image. Keep real submissions user-initiated and don't submit a password until a captcha is visibly rendered in FStudy.
-- CAS auth explicitly rejected FStudy's callback `service` as unauthorized. Keep browser redirect CAS disabled; only BUPT registration of a service URL could change this.
-- Staging registration is currently disabled. A `CAS_STATE_ENCRYPTION_KEY` Wrangler secret exists (never reveal it); latest staging config has `SCHOOL_PASSWORD_REGISTRATION_ENABLED=false`. The new manual-captcha challenge code is local and has not been deployed. User requested a product test, but never ask for/submit a password unless a real captcha is visibly rendered. Before enabling: finish local tests, verify remote 0012/0013, confirm key, deploy staging only, request challenge with fictional ID and require non-null image. If image is null, immediately leave/restore the flag as false. Production always remains disabled.
-
-### User decision on identity strategy
-
-- User said they do not intend to obtain school authorization and requested email/invite alternatives. They later asked for password input, and explicitly approved temporary **encrypted staging-only** CAS session storage to handle manual captcha. This does not mean production approval, service authorization, or approval to bypass captcha.
-- Explain accurately: open source does not remove server trust; direct password submission means the Worker receives the school password in memory before forwarding it to CAS. Never claim the app cannot see it. Do not store/log it.
-- If CAS captcha workflow remains infeasible, keep it disabled and recommend invite-code pilot; email verification only proves inbox access, not BUPT student status.
-
-### Brevo/email clarification
-
-- Brevo sender-domain authentication verifies the user's owned email sending domain (DNS SPF/DKIM/DMARC); it does not require the Worker request's hostname to be a custom domain.
-- Brevo SMTP can additionally reject unknown outbound IPs; Cloudflare Worker egress IP is not fixed/under user's control. Prefer Brevo HTTPS transactional email API (`fetch https://api.brevo.com/v3/smtp/email`) over SMTP if/when adding mail.
-- A sender domain and Brevo sender still need verification; likely requires the user's domain. API key belongs in Wrangler secret. Do not implement/send emails until user supplies a sender domain/config and approves.
+- Email is recorded only. No verification emails are sent.
+- If email delivery is added later, prefer the Brevo HTTPS transactional API (`https://api.brevo.com/v3/smtp/email`) over SMTP. The sender domain must be verified with DNS SPF/DKIM/DMARC. Do not send any email until the user supplies the domain and approves.
 
 ## Known Environment Notes
 

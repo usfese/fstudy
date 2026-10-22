@@ -8,7 +8,7 @@
 | --- | --- |
 | `types.ts` | 数据库抽象、学生验证器接口、运行时依赖注入类型 |
 | `errors.ts` | `DomainError`，统一业务错误 |
-| `security.ts` | 学号 HMAC、PBKDF2 密码、不透明令牌、CAS 状态 AES-GCM 加解密 |
+| `security.ts` | 用户名/历史学号标识哈希、PBKDF2 密码、不透明令牌（CAS 状态加解密已注释） |
 
 ## 关键类型（`types.ts`）
 
@@ -18,18 +18,16 @@ interface SqlDatabase {
   batch(statements: SqlStatement[]): Promise<void>; // 原子写入
 }
 
-interface StudentVerifier {
-  verify(input: { studentId; password; claimedDepartmentId }): Promise<{ studentId; realName; departmentId }>;
-}
+// StudentVerifier / VerifiedStudent：已注释（学生身份验证停用，ADR-021）
 
 type RuntimeDependencies = {
   database: SqlDatabase;
-  studentVerifier: StudentVerifier;
   studentIdPepper: string;
   clock?: () => Date;                       // 测试注入时间
   allowedOrigins?: string[];
   adminBootstrapUsername?, adminBootstrapPassword?;
-  casCallbackUrl?, casLoginEnabled?, schoolPasswordRegistrationEnabled?, casStateEncryptionKey?;
+  casCallbackUrl?, casLoginEnabled?;        // 浏览器 CAS 登录（关闭）
+  inviteRegistrationEnabled?: boolean;      // 邀请码注册开关（ADR-021）
 };
 ```
 
@@ -48,12 +46,13 @@ HTTP 层 `onError` 将其转换为 `{ "error": { "code", "message" } }`，未知
 
 | 函数 | 说明 |
 | --- | --- |
-| `hashStudentId(studentId, pepper)` | HMAC-SHA256，返回 64 位十六进制 |
+| `hashStudentId(studentId, pepper)` | HMAC-SHA256，返回 64 位十六进制；仅保留给历史 CAS 身份 |
+| `hashLoginIdentifier(username)` | SHA-256，返回 64 位十六进制；用于登录节流键，避免保存用户名明文 |
 | `createPasswordCredential(password)` | PBKDF2-SHA256，100,000 次，16 字节盐，返回 `{hash, salt, iterations}`（hash/salt 为 base64） |
 | `verifyPassword(password, credential)` | 常量时间比较；迭代次数非法或运行时报错时返回 `false`（fail closed） |
 | `createOpaqueToken()` | 32 字节随机，base64url，无填充 |
 | `hashToken(token)` | SHA-256 十六进制，用于存储令牌 |
-| `encryptCasState(plaintext, secret)` / `decryptCasState(encrypted, secret)` | AES-GCM，12 字节 IV 前置于密文，密钥 = SHA-256(secret)；secret 少于 32 字符直接抛错 |
+| ~~`encryptCasState` / `decryptCasState`~~ | 已注释（验证码状态加密，ADR-007 已替代） |
 
 ## 约定
 

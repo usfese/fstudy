@@ -1,6 +1,7 @@
 import { DomainError } from '../../core/errors.js';
 import { createOpaqueToken, createPasswordCredential, hashToken, verifyPassword } from '../../core/security.js';
 import type { RuntimeDependencies, SqlDatabase } from '../../core/types.js';
+import { InviteService } from '../invites/invite-service.js';
 
 const SESSION_DAYS = 8;
 const LOGIN_WINDOW_MS = 15 * 60_000;
@@ -214,13 +215,15 @@ export class AdminService {
   async listUsers(query = '') {
     const term = `%${query.trim().slice(0, 80)}%`;
     const result = await this.database.execute({
-      sql: `SELECT u.id, u.display_name AS displayName, u.department_id AS departmentId,
-        u.status, u.created_at AS createdAt, i.verified_at AS verifiedAt,
+      sql: `SELECT u.id, u.username AS username, u.display_name AS displayName,
+        u.department_id AS departmentId, u.status, u.created_at AS createdAt,
+        COALESCE(i.verified_at, u.created_at) AS verifiedAt,
         (SELECT COUNT(*) FROM forum_posts p WHERE p.author_id=u.id) AS postCount,
         (SELECT COUNT(*) FROM projects p WHERE p.owner_id=u.id) AS projectCount
-        FROM users u JOIN student_identities i ON i.user_id=u.id
-        WHERE u.display_name LIKE ? OR u.id = ? ORDER BY u.created_at DESC LIMIT 100`,
-      params: [term, query.trim()],
+        FROM users u LEFT JOIN student_identities i ON i.user_id=u.id
+        WHERE u.display_name LIKE ? OR u.username LIKE ? OR u.id = ?
+        ORDER BY u.created_at DESC LIMIT 100`,
+      params: [term, term, query.trim()],
     });
     return result.rows;
   }
@@ -333,6 +336,12 @@ export class AdminService {
     }
     await this.audit(actor, input.id ? 'tag.update' : 'tag.create', 'tag', id, { category: input.category });
     return { id };
+  }
+
+  async issueInvite(actor: string) {
+    const invite = await new InviteService(this.database, this.now.bind(this)).issueByAdmin();
+    await this.audit(actor, 'invite.issue', 'invite', invite.id, {});
+    return { code: invite.code };
   }
 
   async listAudit() {

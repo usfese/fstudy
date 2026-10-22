@@ -6,7 +6,7 @@
 
 | 目录 | 服务类 | 职责 | 主要表 |
 | --- | --- | --- | --- |
-| `identity/` | `AccountService`、`CasLoginService` | 注册、登录、会话、资料、登录节流；CAS 浏览器登录与验证码流程 | `users`、`student_identities`、`credentials`、`sessions`、`auth_throttles`、`cas_*` |
+| `identity/` | `AccountService`、`CasLoginService` | 邀请码注册、登录、会话、资料、登录节流；CAS 浏览器登录（关闭）。验证码流程已停用 | `users`、`student_identities`、`credentials`、`sessions`、`auth_throttles`、`cas_*` |
 | `tags/` | `TagService` | 受控标签列表与用户选择 | `tags`、`user_tags` |
 | `schedule/` | `ScheduleService` | 手动课程与周次时间表 | `courses`、`course_meetings` |
 | `assignments/` | `AssignmentService` | 作业与完成状态 | `assignments` |
@@ -18,6 +18,7 @@
 | `forum/` | `ForumService` | 讨论帖与回复 | `forum_posts`、`forum_replies` |
 | `admin/` | `AdminService` | 管理员认证、运营统计、审核、标签、审计 | `admin_accounts`、`admin_sessions`、`admin_login_throttles`、`admin_audit_log`、`content_reports` |
 | `notifications/` | `NotificationService` | 站内通知（尽力投递） | `notifications` |
+| `invites/` | `InviteService` | 邀请码生成（每人每月 5 个）、领取与释放（ADR-021） | `invite_codes`、`user_emails` |
 
 作业与自定义安排的完成状态分别存于 `assignments.completed_at` 与 `plans.completed_at`（`null` 表示未完成）。
 
@@ -34,25 +35,26 @@
 | `startBrowserLogin(origin)` | `POST /v1/auth/cas/start` |
 | `handleBrowserCallback(ticket, state)` | `GET /v1/auth/cas/callback`（返回重定向地址） |
 | `completeBrowserLogin(...)` | `POST /v1/auth/cas/complete` |
-| `issuePasswordChallenge` / `refreshPasswordChallenge` / `verifyPasswordChallenge` | `/v1/auth/cas/password/*`（验证码流程，预发实验） |
+| ~~`issuePasswordChallenge` / `refreshPasswordChallenge` / `verifyPasswordChallenge`~~ | 已注释停用（验证码流程，ADR-021） |
 
 校验顺序、错误码与数据库语句保持与重构前一致（由 `app.test.ts` 中的 CAS 测试覆盖）。
 
 ### `AccountService`
 
-依赖 `RuntimeDependencies`（需要 `studentVerifier`、`studentIdPepper`、`clock`）。
+依赖 `RuntimeDependencies`（需要 `studentIdPepper`、`clock`，并通过 `InviteService` 使用 `database`）。
 
 ### 公开方法
 
 | 方法 | 说明 |
 | --- | --- |
-| `register({studentId, schoolPassword, appPassword, displayName, departmentId})` | 检查节流 → 调用 `studentVerifier.verify` → 401 时记一次失败 → 成功后清除失败记录 → `completeVerifiedIdentityHash` |
-| `completeVerifiedIdentityHash({studentIdHash, displayName?, appPassword?, departmentId, allowExistingSession?})` | CAS 路径使用的版本。身份已存在：`allowExistingSession` 时直接发新会话，否则 409；身份不存在且缺少资料：409 `cas_registration_required`；否则 `batch` 写入 `users` + `student_identities` + `credentials` + `sessions` |
-| `createSessionForVerifiedIdentityHash(hash)` | 为已存在的活跃用户签发新会话 |
-| `login({studentId, appPassword})` | 节流检查 → 查询凭据 → 无论账号是否存在都执行一次 PBKDF2（`DUMMY_PASSWORD_CREDENTIAL`，防时序枚举）→ 失败统一返回 401 `invalid_credentials` |
+| `register({username, email, appPassword, displayName?, departmentId, inviteCode})` | 规范化用户名（小写）并校验 3–20 位字母、数字或下划线 → 检查用户名与邮箱未被占用 → `InviteService.claim` 原子领取邀请码 → `batch` 写入 `users`、`credentials`、`user_emails`、`sessions` → 失败时 `release` 释放邀请码。**不写入 `student_identities`**，不调用任何学校验证（ADR-021、ADR-023） |
+| `getEmail(userId)` | 返回本人邮箱（未注册前的历史账户为 null） |
+| `completeVerifiedIdentityHash({studentIdHash, displayName?, appPassword?, departmentId, allowExistingSession?})` | 仅供保留的 CAS 浏览器路径使用。已有身份且 `allowExistingSession` 时签发会话；CAS 结果不能创建新账户（403 `invite_registration_required`）；普通新用户必须走邀请码 `register()` |
+| `createSessionForVerifiedIdentityHash(hash)` | 为已存在的活跃用户签发新会话；不检查 `student_identities.expires_at`（ADR-022） |
+| `login({username, appPassword})` | 用户名转小写 → 以 `login:<SHA-256>` 为节流键检查 → 查询凭据 → 无论账号是否存在都执行一次 PBKDF2（`DUMMY_PASSWORD_CREDENTIAL`，防时序枚举）→ 失败统一返回 401 `invalid_credentials` |
 | `authenticate(token)` | 校验令牌哈希、未撤销、未过期、用户 `active`，返回 `userId` |
 | `revokeSession(token)` | 写 `revoked_at` |
-| `getUser(userId)` | 返回 `PublicUser` |
+| `getUser(userId)` | 左连接 `student_identities`（历史数据可能不存在），返回含 `username` 的 `PublicUser`；`verifiedAt` 回退到 `users.created_at` |
 | `updateUser(userId, patch)` | 更新资料与隐私设置 |
 
 ### 关键常量
@@ -60,19 +62,32 @@
 | 常量 | 值 |
 | --- | --- |
 | 会话有效期 | 30 天 |
-| 身份验证有效期（`student_identities.expires_at`） | 365 天。过期后不能登录，已有会话失效（[ADR-018](../../../../decisions.md#adr-018北邮身份-365-天有效过期需重新验证)） |
+| `student_identities.expires_at` | 注册时仍写入兼容值，但授权流程不读取此字段；内测期间不强制过期（[ADR-022](../../../../decisions.md#adr-022内测期间不强制学生身份过期)） |
 | 失败窗口 / 阈值 / 锁定时长 | 15 分钟 / 5 次 / 15 分钟 |
 
-### 身份过期与续期（ADR-018）
+### 身份过期（ADR-022）
 
-- `login`：密码正确后检查 `expires_at`，过期返回 403 `identity_reverification_required`，且不计入失败次数。
-- `authenticate`：通过 `student_identities` 连接查询，过期身份的会话视为无效。
-- `renewIdentityIfExpired(studentIdHash)`：仅当身份已过期时，更新 `verified_at` 与 `expires_at` 并签发新会话。由 CAS 浏览器完成和验证码验证流程调用。
+- `student_identities.expires_at` 是兼容字段，当前仅写入、不检查。
+- `login`、`authenticate`、发现、好友申请和共同空闲都不因其过期而拒绝请求。
+- 仍有 30 天会话有效期和账户封禁检查。正式发布前重新评估内测身份验证风险。
 
 ### 注意
 
-- 登录与注册的节流都以 `student_id_hash` 为键（`auth_throttles.throttle_key`），因此不会把学号明文写入节流表。
-- `register` 在 `DomainError.status === 401` 时才记录失败；503 等临时错误不计入。这是有意设计（有测试覆盖）。
+- 登录节流以 `login:<SHA-256(小写用户名)>` 为键（`auth_throttles.throttle_key`），不会把用户名明文写入节流表。
+- 注册不再调用学校验证，因此不再记录注册类失败次数。登录失败仍按上面的规则节流。
+
+---
+
+## invites — `InviteService`
+
+邀请码与额度（[ADR-021](../../../../decisions.md#adr-021邀请码注册记录邮箱停用学生身份验证)）。
+
+- `issueForUser(userId)`：在一条 `INSERT ... SELECT ... WHERE (SELECT COUNT(*)) < 5` 语句中生成一个码，原子地检查当月额度（Asia/Shanghai 自然月）。超额时 429 `invite_quota_exceeded`。
+- `issueByAdmin()`：生成运营码（`source = 'admin'`，`issued_by` 为空），不计入任何用户额度。
+- `listForUser(userId)`：返回本月额度、剩余数量与本人生成的码的状态（不返回码本身）。
+- `claim(code, userId)`：`UPDATE ... WHERE used_at IS NULL`，只有一次成功。失败 403 `invalid_invite_code`。
+- `release(claim)`：注册失败时撤销领取。
+- `normalizeInviteCode`：大小写不敏感，忽略空格与 `-`，I/L→1、O→0。码以 SHA-256 哈希保存。
 
 ---
 
@@ -119,7 +134,7 @@
 
 用于 `/v1/discover`。
 
-- 候选：`discoverable = 1`、`status = 'active'`、身份未过期（ADR-018）、不是自己。最多 50 人。
+- 候选：`discoverable = 1`、`status = 'active'`、不是自己。最多 50 人。
 - 排序：`common_tag_count DESC`、`same_department DESC`、`display_name`。
 - 共同标签：仅计算双方 `used_for_recommendation = 1` 的标签。
 - 返回的标签只包括对方 `visible = 1` 的标签，并标记 `common`。
@@ -131,7 +146,7 @@
 
 ## friends — `FriendService`
 
-- `send(userId, targetUserId)`：不能加自己；目标必须 `active`、`discoverable` 且身份未过期；已是好友 409；已有待处理请求时区分方向（`request_already_sent` / `incoming_request_exists`）。使用 `pair_key`（两个 id 排序后用 `:` 连接）唯一约束。
+- `send(userId, targetUserId)`：不能加自己；目标必须 `active`、`discoverable` ；已是好友 409；已有待处理请求时区分方向（`request_already_sent` / `incoming_request_exists`）。使用 `pair_key`（两个 id 排序后用 `:` 连接）唯一约束。
 - `respond(userId, requestId, action)`：`accept` / `reject` 只能由接收方操作；`cancel` 只能由发送方操作。`accept` 写入 `friendships`。
 - `list(userId)`：返回 `{ friends, incoming, outgoing }`。
 
@@ -218,6 +233,7 @@
 | `createReport(reporterId, input)` | 举报；`targetType` ∈ `forum_post`/`forum_reply`/`project` |
 | `listReports()` / `updateReport(actor, id, status)` | `resolved` / `dismissed` |
 | `listTags()` / `saveTag(actor, input)` | 创建或编辑受控标签（`id` 可选，`category` ∈ interest/field/goal） |
+| `issueInvite(actor)` | 生成运营邀请码，写入审计（`invite.issue`）。见 [invites](#invites--inviteservice) |
 | `listAudit()` | 最近的审计记录 |
 
 审计动作命名示例：`content.hide`、`content.restore`、`content.delete`，实体类型为 `forum_post` / `forum_reply` / `project`。
@@ -238,7 +254,7 @@
 
 ## 待确认事项
 
-1. 过期身份的论坛帖与项目仍然公开可见（ADR-018 未覆盖内容下架）。
-2. 生产环境目前没有可用的续期路径（ADR-018）。
+1. 论坛帖与项目在账户被封禁之外没有身份年龄过滤。
+2. 用户名没有外部校验（ADR-021、ADR-023）。内测阶段接受，正式发布前重新评估身份可信度。
 3. `DiscoveryService` 没有过滤“已被对方拉黑”或“已屏蔽”的关系，因为目前没有屏蔽功能。
 4. 管理员搜索无法按学号查询（学号只以 HMAC 存储），这是 [ADR-004](../../../../decisions.md#adr-004学号只以-hmac-形式保存不保存真实姓名与学校密码) 的有意取舍；若运营需要按学号查人，需要单独的受控流程。

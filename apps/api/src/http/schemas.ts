@@ -4,16 +4,23 @@ export const ErrorSchema = z.object({
   error: z.object({ code: z.string(), message: z.string() }),
 });
 
+export const UsernameSchema = z
+  .string()
+  .trim()
+  .regex(/^[A-Za-z0-9_]{3,20}$/);
+
 export const RegisterSchema = z.object({
-  studentId: z.string().min(1).max(32),
-  schoolPassword: z.string().min(1).max(256),
+  username: UsernameSchema,
+  email: z.email().max(254),
   appPassword: z.string().min(10).max(128),
-  displayName: z.string().trim().min(1).max(30),
+  // Optional; defaults to the username. Not used for login.
+  displayName: z.string().trim().min(1).max(30).optional(),
   departmentId: z.string().trim().min(1).max(64).nullable().default(null),
+  inviteCode: z.string().trim().min(8).max(32),
 });
 
 export const LoginSchema = z.object({
-  studentId: z.string().min(1).max(32),
+  username: z.string().trim().min(1).max(32),
   appPassword: z.string().min(1).max(128),
 });
 
@@ -124,24 +131,25 @@ export const CasCompleteSchema = z.object({
   departmentId: z.string().trim().min(1).max(64).nullable().default(null),
 });
 
-export const CasPasswordChallengeSchema = z.object({
-  studentId: z.string().regex(/^\d{8,12}$/),
-});
+// [2026-10-14 已停用] 验证码 / 学校密码验证相关代码，保留以便日后恢复，勿直接启用：
+// export const CasPasswordChallengeSchema = z.object({
+  // studentId: z.string().regex(/^\d{8,12}$/),
+// });
 
-export const CasPasswordVerificationSchema = z.object({
-  challengeId: z.string().min(32).max(128),
-  studentId: z.string().regex(/^\d{8,12}$/),
-  schoolPassword: z.string().min(1).max(256),
-  captcha: z.string().max(32).nullable().optional(),
-  displayName: z.string().trim().min(1).max(30),
-  appPassword: z.string().min(10).max(128),
-  departmentId: z.string().trim().min(1).max(64).nullable().default(null),
-});
+// export const CasPasswordVerificationSchema = z.object({
+  // challengeId: z.string().min(32).max(128),
+  // studentId: z.string().regex(/^\d{8,12}$/),
+  // schoolPassword: z.string().min(1).max(256),
+  // captcha: z.string().max(32).nullable().optional(),
+  // displayName: z.string().trim().min(1).max(30),
+  // appPassword: z.string().min(10).max(128),
+  // departmentId: z.string().trim().min(1).max(64).nullable().default(null),
+// });
 
-export const CasPasswordRefreshSchema = z.object({
-  challengeId: z.string().min(32).max(128),
-  studentId: z.string().regex(/^\d{8,12}$/),
-});
+// export const CasPasswordRefreshSchema = z.object({
+  // challengeId: z.string().min(32).max(128),
+  // studentId: z.string().regex(/^\d{8,12}$/),
+// });
 
 export const AdminUserStatusSchema = z.object({ status: z.enum(['active', 'suspended']) });
 export const AdminContentActionSchema = z.object({ action: z.enum(['hide', 'restore', 'delete']) });

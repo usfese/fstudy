@@ -103,7 +103,12 @@ class _FeatureCard extends StatelessWidget {
       width: 280,
       child: Card(
         elevation: 0,
-        color: Colors.white,
+        margin: EdgeInsets.zero,
+        color: Theme.of(context).colorScheme.surfaceContainerLow,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+          side: BorderSide(color: Theme.of(context).colorScheme.outlineVariant),
+        ),
         clipBehavior: Clip.antiAlias,
         child: InkWell(
           onTap: onTap,
@@ -120,7 +125,12 @@ class _FeatureCard extends StatelessWidget {
                 const SizedBox(height: 18),
                 Text(title, style: Theme.of(context).textTheme.titleLarge),
                 const SizedBox(height: 6),
-                Text(detail),
+                Text(
+                  detail,
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
+                ),
               ],
             ),
           ),

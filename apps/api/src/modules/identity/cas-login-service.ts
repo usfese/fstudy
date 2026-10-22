@@ -1,8 +1,6 @@
 import { DomainError } from '../../core/errors.js';
 import {
   createOpaqueToken,
-  decryptCasState,
-  encryptCasState,
   hashStudentId,
   hashToken,
 } from '../../core/security.js';
@@ -10,24 +8,25 @@ import type { RuntimeDependencies } from '../../core/types.js';
 import { BuptCasStudentVerifier } from '../../adapters/student-verifier.js';
 import type { AccountService } from './account-service.js';
 
-const CHALLENGE_TTL_MS = 5 * 60_000;
-const CHALLENGE_RATE_WINDOW_MS = 15 * 60_000;
-const CHALLENGE_RATE_LIMIT = 5;
-const CHALLENGE_MAX_ATTEMPTS = 3;
+// [2026-10-14 已停用] 验证码 / 学校密码验证相关代码，保留以便日后恢复，勿直接启用：
+// const CHALLENGE_TTL_MS = 5 * 60_000;
+// const CHALLENGE_RATE_WINDOW_MS = 15 * 60_000;
+// const CHALLENGE_RATE_LIMIT = 5;
+// const CHALLENGE_MAX_ATTEMPTS = 3;
 
 export type CasSession = Awaited<ReturnType<AccountService['completeVerifiedIdentityHash']>>;
 
-export type PasswordChallengeIssued = {
-  challengeId: string;
-  captchaImage: string | null;
-  expiresInSeconds: number;
-};
+// export type PasswordChallengeIssued = {
+  // challengeId: string;
+  // captchaImage: string | null;
+  // expiresInSeconds: number;
+// };
 
-export type PasswordVerifyOutcome =
-  | { kind: 'retry'; code: string; message: string }
-  | { kind: 'session'; session: CasSession };
+// export type PasswordVerifyOutcome =
+  // | { kind: 'retry'; code: string; message: string }
+  // | { kind: 'session'; session: CasSession };
 
-/** Browser-redirect CAS login and the staging-only password + captcha challenge flow. */
+// /** Browser-redirect CAS login. The password + captcha challenge flow is disabled (see comments). */
 export class CasLoginService {
   private readonly browserVerifier = new BuptCasStudentVerifier();
 
@@ -45,9 +44,10 @@ export class CasLoginService {
     return (this.dependencies.clock ?? (() => new Date()))();
   }
 
-  private get passwordVerifier(): BuptCasStudentVerifier {
-    return this.dependencies.studentVerifier as BuptCasStudentVerifier;
-  }
+// [2026-10-14 已停用] 验证码 / 学校密码验证相关代码，保留以便日后恢复，勿直接启用：
+  // private get passwordVerifier(): BuptCasStudentVerifier {
+    // return this.dependencies.studentVerifier as BuptCasStudentVerifier;
+  // }
 
   private assertBrowserLoginEnabled(): void {
     if (!this.dependencies.casLoginEnabled) {
@@ -55,20 +55,20 @@ export class CasLoginService {
     }
   }
 
-  private assertPasswordFlowEnabled(): void {
-    if (!this.dependencies.schoolPasswordRegistrationEnabled || !(this.dependencies.studentVerifier instanceof BuptCasStudentVerifier)) {
-      throw new DomainError('school_password_registration_disabled', '学校密码认证未启用', 503);
-    }
-    if (!this.dependencies.casStateEncryptionKey || this.dependencies.casStateEncryptionKey.length < 32) {
-      throw new DomainError('cas_challenge_unavailable', '验证码服务未完成安全配置', 503);
-    }
-  }
+  // private assertPasswordFlowEnabled(): void {
+    // if (!this.dependencies.schoolPasswordRegistrationEnabled || !(this.dependencies.studentVerifier instanceof BuptCasStudentVerifier)) {
+      // throw new DomainError('school_password_registration_disabled', '学校密码认证未启用', 503);
+    // }
+    // if (!this.dependencies.casStateEncryptionKey || this.dependencies.casStateEncryptionKey.length < 32) {
+      // throw new DomainError('cas_challenge_unavailable', '验证码服务未完成安全配置', 503);
+    // }
+  // }
 
-  private assertOriginAllowed(origin: string | undefined): void {
-    if (!origin || !this.allowedOrigins.has(origin)) {
-      throw new DomainError('cas_origin_not_allowed', '认证来源不受支持', 403);
-    }
-  }
+  // private assertOriginAllowed(origin: string | undefined): void {
+    // if (!origin || !this.allowedOrigins.has(origin)) {
+      // throw new DomainError('cas_origin_not_allowed', '认证来源不受支持', 403);
+    // }
+  // }
 
   async startBrowserLogin(origin: string | undefined): Promise<{ authorizationUrl: string }> {
     this.assertBrowserLoginEnabled();
@@ -184,149 +184,150 @@ export class CasLoginService {
     });
   }
 
-  async issuePasswordChallenge(origin: string | undefined, studentId: string): Promise<PasswordChallengeIssued> {
-    this.assertPasswordFlowEnabled();
-    this.assertOriginAllowed(origin);
-    const studentIdHash = await hashStudentId(studentId, this.dependencies.studentIdPepper);
-    const recent = await this.database.execute<{ count: number }>({
-      sql: 'SELECT COUNT(*) AS count FROM cas_password_challenges WHERE student_id_hash = ? AND created_at > ?',
-      params: [studentIdHash, new Date(Date.now() - CHALLENGE_RATE_WINDOW_MS).toISOString()],
-    });
-    if ((recent.rows[0]?.count ?? 0) >= CHALLENGE_RATE_LIMIT) {
-      throw new DomainError('cas_challenge_rate_limited', '验证码请求过于频繁，请 15 分钟后重试', 429);
-    }
-    await this.database.execute({
-      sql: 'DELETE FROM cas_password_challenges WHERE expires_at <= ? OR consumed_at IS NOT NULL',
-      params: [this.now().toISOString()],
-    });
-    return this.createChallenge(studentIdHash);
-  }
+// [2026-10-14 已停用] 验证码 / 学校密码验证相关代码，保留以便日后恢复，勿直接启用：
+  // async issuePasswordChallenge(origin: string | undefined, studentId: string): Promise<PasswordChallengeIssued> {
+    // this.assertPasswordFlowEnabled();
+    // this.assertOriginAllowed(origin);
+    // const studentIdHash = await hashStudentId(studentId, this.dependencies.studentIdPepper);
+    // const recent = await this.database.execute<{ count: number }>({
+      // sql: 'SELECT COUNT(*) AS count FROM cas_password_challenges WHERE student_id_hash = ? AND created_at > ?',
+      // params: [studentIdHash, new Date(Date.now() - CHALLENGE_RATE_WINDOW_MS).toISOString()],
+    // });
+    // if ((recent.rows[0]?.count ?? 0) >= CHALLENGE_RATE_LIMIT) {
+      // throw new DomainError('cas_challenge_rate_limited', '验证码请求过于频繁，请 15 分钟后重试', 429);
+    // }
+    // await this.database.execute({
+      // sql: 'DELETE FROM cas_password_challenges WHERE expires_at <= ? OR consumed_at IS NOT NULL',
+      // params: [this.now().toISOString()],
+    // });
+    // return this.createChallenge(studentIdHash);
+  // }
 
-  async refreshPasswordChallenge(challengeId: string, studentId: string): Promise<PasswordChallengeIssued> {
-    this.assertPasswordFlowEnabled();
-    const challengeHash = await hashToken(challengeId);
-    const challenge = await this.database.execute<{ student_id_hash: string; expires_at: string; consumed_at: string | null }>({
-      sql: 'SELECT student_id_hash, expires_at, consumed_at FROM cas_password_challenges WHERE challenge_hash = ?',
-      params: [challengeHash],
-    });
-    const prior = challenge.rows[0];
-    if (!prior || prior.consumed_at || new Date(prior.expires_at) <= this.now()) {
-      throw new DomainError('cas_challenge_expired', '验证码已过期，请重新获取', 400);
-    }
-    const studentIdHash = await hashStudentId(studentId, this.dependencies.studentIdPepper);
-    if (studentIdHash !== prior.student_id_hash) {
-      throw new DomainError('cas_challenge_identity_mismatch', '学号与验证码会话不一致', 400);
-    }
-    const recent = await this.database.execute<{ count: number }>({
-      sql: 'SELECT COUNT(*) AS count FROM cas_password_challenges WHERE student_id_hash = ? AND created_at > ?',
-      params: [studentIdHash, new Date(Date.now() - CHALLENGE_RATE_WINDOW_MS).toISOString()],
-    });
-    if ((recent.rows[0]?.count ?? 0) >= CHALLENGE_RATE_LIMIT) {
-      throw new DomainError('cas_challenge_rate_limited', '验证码请求过于频繁，请稍后再试', 429);
-    }
-    const consumed = await this.database.execute({
-      sql: 'UPDATE cas_password_challenges SET consumed_at = ? WHERE challenge_hash = ? AND consumed_at IS NULL AND expires_at > ?',
-      params: [this.now().toISOString(), challengeHash, this.now().toISOString()],
-    });
-    if (consumed.changes !== 1) throw new DomainError('cas_challenge_expired', '验证码已使用或过期', 400);
-    return this.createChallenge(studentIdHash);
-  }
+  // async refreshPasswordChallenge(challengeId: string, studentId: string): Promise<PasswordChallengeIssued> {
+    // this.assertPasswordFlowEnabled();
+    // const challengeHash = await hashToken(challengeId);
+    // const challenge = await this.database.execute<{ student_id_hash: string; expires_at: string; consumed_at: string | null }>({
+      // sql: 'SELECT student_id_hash, expires_at, consumed_at FROM cas_password_challenges WHERE challenge_hash = ?',
+      // params: [challengeHash],
+    // });
+    // const prior = challenge.rows[0];
+    // if (!prior || prior.consumed_at || new Date(prior.expires_at) <= this.now()) {
+      // throw new DomainError('cas_challenge_expired', '验证码已过期，请重新获取', 400);
+    // }
+    // const studentIdHash = await hashStudentId(studentId, this.dependencies.studentIdPepper);
+    // if (studentIdHash !== prior.student_id_hash) {
+      // throw new DomainError('cas_challenge_identity_mismatch', '学号与验证码会话不一致', 400);
+    // }
+    // const recent = await this.database.execute<{ count: number }>({
+      // sql: 'SELECT COUNT(*) AS count FROM cas_password_challenges WHERE student_id_hash = ? AND created_at > ?',
+      // params: [studentIdHash, new Date(Date.now() - CHALLENGE_RATE_WINDOW_MS).toISOString()],
+    // });
+    // if ((recent.rows[0]?.count ?? 0) >= CHALLENGE_RATE_LIMIT) {
+      // throw new DomainError('cas_challenge_rate_limited', '验证码请求过于频繁，请稍后再试', 429);
+    // }
+    // const consumed = await this.database.execute({
+      // sql: 'UPDATE cas_password_challenges SET consumed_at = ? WHERE challenge_hash = ? AND consumed_at IS NULL AND expires_at > ?',
+      // params: [this.now().toISOString(), challengeHash, this.now().toISOString()],
+    // });
+    // if (consumed.changes !== 1) throw new DomainError('cas_challenge_expired', '验证码已使用或过期', 400);
+    // return this.createChallenge(studentIdHash);
+  // }
 
-  async verifyPasswordChallenge(input: {
-    challengeId: string;
-    studentId: string;
-    schoolPassword: string;
-    captcha?: string | null | undefined;
-    displayName: string;
-    appPassword: string;
-    departmentId: string | null;
-  }): Promise<PasswordVerifyOutcome> {
-    this.assertPasswordFlowEnabled();
-    const challengeHash = await hashToken(input.challengeId);
-    const challenge = await this.database.execute<{ student_id_hash: string; encrypted_state: string; expires_at: string; consumed_at: string | null; attempt_count: number }>({
-      sql: 'SELECT student_id_hash, encrypted_state, expires_at, consumed_at, attempt_count FROM cas_password_challenges WHERE challenge_hash = ?',
-      params: [challengeHash],
-    });
-    const row = challenge.rows[0];
-    if (!row || row.consumed_at || new Date(row.expires_at) <= this.now()) {
-      throw new DomainError('cas_challenge_expired', '验证码已过期，请重新获取', 400);
-    }
-    const inputIdentityHash = await hashStudentId(input.studentId, this.dependencies.studentIdPepper);
-    if (inputIdentityHash !== row.student_id_hash) {
-      throw new DomainError('cas_challenge_identity_mismatch', '学号与验证码会话不一致，请重新获取', 400);
-    }
-    const attempt = await this.database.execute({
-      sql: 'UPDATE cas_password_challenges SET attempt_count = attempt_count + 1 WHERE challenge_hash = ? AND consumed_at IS NULL AND expires_at > ? AND attempt_count < ?',
-      params: [challengeHash, this.now().toISOString(), CHALLENGE_MAX_ATTEMPTS],
-    });
-    if (attempt.changes !== 1) throw new DomainError('cas_challenge_expired', '验证码已使用、过期或尝试次数已用完，请重新获取', 400);
-    const attemptCount = await this.database.execute<{ attempt_count: number }>({
-      sql: 'SELECT attempt_count FROM cas_password_challenges WHERE challenge_hash = ?',
-      params: [challengeHash],
-    });
-    let state: { cookie: string; execution: string; captchaId: string | null };
-    try {
-      state = JSON.parse(await decryptCasState(row.encrypted_state, this.dependencies.casStateEncryptionKey!));
-    } catch {
-      await this.clearChallenge(challengeHash);
-      throw new DomainError('cas_challenge_unavailable', '验证码会话无效，请重新获取', 400);
-    }
-    let verified: { studentId: string };
-    try {
-      verified = await this.passwordVerifier.verifyPasswordChallenge({
-        studentId: input.studentId,
-        password: input.schoolPassword,
-        captcha: input.captcha ?? null,
-        state,
-      });
-    } catch (error) {
-      if (error instanceof DomainError && error.code === 'school_auth_captcha_invalid'
-        && (attemptCount.rows[0]?.attempt_count ?? CHALLENGE_MAX_ATTEMPTS) < CHALLENGE_MAX_ATTEMPTS) {
-        return { kind: 'retry', code: error.code, message: error.message };
-      }
-      await this.clearChallenge(challengeHash);
-      throw error;
-    }
-    await this.clearChallenge(challengeHash);
-    await this.database.execute({
-      sql: 'DELETE FROM cas_password_challenges WHERE challenge_hash = ?',
-      params: [challengeHash],
-    });
-    const identityHash = await hashStudentId(verified.studentId, this.dependencies.studentIdPepper);
-    const renewed = await this.accounts.renewIdentityIfExpired(identityHash);
-    if (renewed) return { kind: 'session', session: renewed };
-    const session = await this.accounts.completeVerifiedIdentityHash({
-      studentIdHash: identityHash,
-      displayName: input.displayName,
-      appPassword: input.appPassword,
-      departmentId: input.departmentId,
-    });
-    return { kind: 'session', session };
-  }
+  // async verifyPasswordChallenge(input: {
+    // challengeId: string;
+    // studentId: string;
+    // schoolPassword: string;
+    // captcha?: string | null | undefined;
+    // displayName: string;
+    // appPassword: string;
+    // departmentId: string | null;
+  // }): Promise<PasswordVerifyOutcome> {
+    // this.assertPasswordFlowEnabled();
+    // const challengeHash = await hashToken(input.challengeId);
+    // const challenge = await this.database.execute<{ student_id_hash: string; encrypted_state: string; expires_at: string; consumed_at: string | null; attempt_count: number }>({
+      // sql: 'SELECT student_id_hash, encrypted_state, expires_at, consumed_at, attempt_count FROM cas_password_challenges WHERE challenge_hash = ?',
+      // params: [challengeHash],
+    // });
+    // const row = challenge.rows[0];
+    // if (!row || row.consumed_at || new Date(row.expires_at) <= this.now()) {
+      // throw new DomainError('cas_challenge_expired', '验证码已过期，请重新获取', 400);
+    // }
+    // const inputIdentityHash = await hashStudentId(input.studentId, this.dependencies.studentIdPepper);
+    // if (inputIdentityHash !== row.student_id_hash) {
+      // throw new DomainError('cas_challenge_identity_mismatch', '学号与验证码会话不一致，请重新获取', 400);
+    // }
+    // const attempt = await this.database.execute({
+      // sql: 'UPDATE cas_password_challenges SET attempt_count = attempt_count + 1 WHERE challenge_hash = ? AND consumed_at IS NULL AND expires_at > ? AND attempt_count < ?',
+      // params: [challengeHash, this.now().toISOString(), CHALLENGE_MAX_ATTEMPTS],
+    // });
+    // if (attempt.changes !== 1) throw new DomainError('cas_challenge_expired', '验证码已使用、过期或尝试次数已用完，请重新获取', 400);
+    // const attemptCount = await this.database.execute<{ attempt_count: number }>({
+      // sql: 'SELECT attempt_count FROM cas_password_challenges WHERE challenge_hash = ?',
+      // params: [challengeHash],
+    // });
+    // let state: { cookie: string; execution: string; captchaId: string | null };
+    // try {
+      // state = JSON.parse(await decryptCasState(row.encrypted_state, this.dependencies.casStateEncryptionKey!));
+    // } catch {
+      // await this.clearChallenge(challengeHash);
+      // throw new DomainError('cas_challenge_unavailable', '验证码会话无效，请重新获取', 400);
+    // }
+    // let verified: { studentId: string };
+    // try {
+      // verified = await this.passwordVerifier.verifyPasswordChallenge({
+        // studentId: input.studentId,
+        // password: input.schoolPassword,
+        // captcha: input.captcha ?? null,
+        // state,
+      // });
+    // } catch (error) {
+      // if (error instanceof DomainError && error.code === 'school_auth_captcha_invalid'
+        // && (attemptCount.rows[0]?.attempt_count ?? CHALLENGE_MAX_ATTEMPTS) < CHALLENGE_MAX_ATTEMPTS) {
+        // return { kind: 'retry', code: error.code, message: error.message };
+      // }
+      // await this.clearChallenge(challengeHash);
+      // throw error;
+    // }
+    // await this.clearChallenge(challengeHash);
+    // await this.database.execute({
+      // sql: 'DELETE FROM cas_password_challenges WHERE challenge_hash = ?',
+      // params: [challengeHash],
+    // });
+    // const identityHash = await hashStudentId(verified.studentId, this.dependencies.studentIdPepper);
+    // const renewed = await this.accounts.renewIdentityIfExpired(identityHash);
+    // if (renewed) return { kind: 'session', session: renewed };
+    // const session = await this.accounts.completeVerifiedIdentityHash({
+      // studentIdHash: identityHash,
+      // displayName: input.displayName,
+      // appPassword: input.appPassword,
+      // departmentId: input.departmentId,
+    // });
+    // return { kind: 'session', session };
+  // }
 
-  private async createChallenge(studentIdHash: string): Promise<PasswordChallengeIssued> {
-    const challenge = await this.passwordVerifier.beginPasswordChallenge();
-    const challengeId = createOpaqueToken();
-    const now = this.now();
-    await this.database.execute({
-      sql: `INSERT INTO cas_password_challenges
-        (challenge_hash, student_id_hash, encrypted_state, expires_at, created_at)
-        VALUES (?, ?, ?, ?, ?)`,
-      params: [
-        await hashToken(challengeId),
-        studentIdHash,
-        await encryptCasState(JSON.stringify(challenge.state), this.dependencies.casStateEncryptionKey!),
-        new Date(now.getTime() + CHALLENGE_TTL_MS).toISOString(),
-        now.toISOString(),
-      ],
-    });
-    return { challengeId, captchaImage: challenge.captchaImage, expiresInSeconds: 300 };
-  }
+  // private async createChallenge(studentIdHash: string): Promise<PasswordChallengeIssued> {
+    // const challenge = await this.passwordVerifier.beginPasswordChallenge();
+    // const challengeId = createOpaqueToken();
+    // const now = this.now();
+    // await this.database.execute({
+      // sql: `INSERT INTO cas_password_challenges
+        // (challenge_hash, student_id_hash, encrypted_state, expires_at, created_at)
+        // VALUES (?, ?, ?, ?, ?)`,
+      // params: [
+        // await hashToken(challengeId),
+        // studentIdHash,
+        // await encryptCasState(JSON.stringify(challenge.state), this.dependencies.casStateEncryptionKey!),
+        // new Date(now.getTime() + CHALLENGE_TTL_MS).toISOString(),
+        // now.toISOString(),
+      // ],
+    // });
+    // return { challengeId, captchaImage: challenge.captchaImage, expiresInSeconds: 300 };
+  // }
 
-  private async clearChallenge(challengeHash: string): Promise<void> {
-    await this.database.execute({
-      sql: 'UPDATE cas_password_challenges SET consumed_at = ?, encrypted_state = ? WHERE challenge_hash = ?',
-      params: [this.now().toISOString(), '', challengeHash],
-    });
-  }
+  // private async clearChallenge(challengeHash: string): Promise<void> {
+    // await this.database.execute({
+      // sql: 'UPDATE cas_password_challenges SET consumed_at = ?, encrypted_state = ? WHERE challenge_hash = ?',
+      // params: [this.now().toISOString(), '', challengeHash],
+    // });
+  // }
 }

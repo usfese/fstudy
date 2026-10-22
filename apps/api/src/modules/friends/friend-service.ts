@@ -34,7 +34,6 @@ export class FriendService {
 
   constructor(
     private readonly database: SqlDatabase,
-    private readonly clock: () => Date = () => new Date(),
   ) {
     this.notifications = new NotificationService(database);
   }
@@ -46,8 +45,8 @@ export class FriendService {
     const target = await this.database.execute<{ id: string }>({
       sql: `SELECT id FROM users
             WHERE id = ? AND status = 'active' AND discoverable = 1
-              AND EXISTS (SELECT 1 FROM student_identities si WHERE si.user_id = users.id AND si.expires_at > ?)`,
-      params: [targetUserId, this.clock().toISOString()],
+`,
+      params: [targetUserId],
     });
     if (!target.rows[0]) {
       throw new DomainError('user_not_available', '该用户当前不可添加', 404);

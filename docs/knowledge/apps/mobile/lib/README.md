@@ -48,13 +48,13 @@ _restoring                       → 不重定向
 其他                              → 不变
 ```
 
-CAS 回调参数（`cas_code` / `cas_state`）可能位于 URL 的查询串或 `#` 片段中，由 `/login` 路由读取后交给 `AuthPage`。
+CAS 回调参数（`cas_code` / `cas_state`）的路由解析仍然保留，但 `AuthPage` 已停用 CAS 回调处理（ADR-021）。
 
 ## 路由表
 
 | 路径 | 页面 | 备注 |
 | --- | --- | --- |
-| `/login` | `AuthPage` | 登录/注册；接收 CAS 回调参数 |
+| `/login` | `AuthPage` | 登录与邀请码注册（ADR-021） |
 | `/notifications` | `NotificationsPage` | 未登录显示提示文字 |
 | `/` | `HomePage` | 首页（`StatefulShellRoute` 分支 0） |
 | `/schedule` | `CoursesPage` | 课表（分支 1） |

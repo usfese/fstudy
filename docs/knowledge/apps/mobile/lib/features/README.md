@@ -24,23 +24,21 @@
 ## auth
 
 ### 页面
-`AuthPage(repository, onAuthenticated, casCode?, casState?)`：登录、注册，以及北邮认证入口（CAS 回调参数存在时进入回调流程）。
+`AuthPage(repository, onAuthenticated, casCode?, casState?)`：登录与注册。注册需要用户名（3–20 位字母、数字或下划线）、邮箱、邀请码和本系统密码；显示名称默认等于用户名，可在个人资料中修改。学校密码与验证码输入框、北邮跳转登录按钮和 CAS 回调处理已注释停用（ADR-021、ADR-023）。`casCode` / `casState` 参数保留但不再使用。
 
 ### 仓库接口（`AuthRepository`）
 
 | 方法 | 接口 | 说明 |
 | --- | --- | --- |
 | `restoreSession()` | `GET /v1/me`（带令牌） | 读取 `fstudy_access_token`；失败则删除本地令牌并返回 `null` |
-| `login({studentId, appPassword})` | `POST /v1/auth/login` | 成功后保存令牌 |
-| `register({...})` | `POST /v1/auth/register` | 学校密码注册；服务端关闭时返回 403 |
+| `login({username, appPassword})` | `POST /v1/auth/login` | 成功后保存令牌；用户名不区分大小写 |
+| `register({username, email, appPassword, departmentId, inviteCode})` | `POST /v1/auth/register` | 邀请码注册；用户名或邮箱重复 409，邀请码无效 403，注册关闭 403 |
 | `startBrowserCas()` | `POST /v1/auth/cas/start` | 取得 `authorizationUrl` 并跳转；当前关闭 |
 | `completeBrowserCas({code, state, ...})` | `POST /v1/auth/cas/complete` | 处理回调 code；首次注册需要显示名与本系统密码 |
-| `beginCasPasswordChallenge(studentId)` | `POST /v1/auth/cas/password/challenge` | 获取验证码图片与 `challengeId` |
-| `refreshCasPasswordChallenge(...)` | `POST /v1/auth/cas/password/refresh` | 更换验证码 |
-| `verifyCasPasswordChallenge(...)` | `POST /v1/auth/cas/password/verify` | 提交学校密码与人工验证码 |
+| ~~`beginCasPasswordChallenge` / `refreshCasPasswordChallenge` / `verifyCasPasswordChallenge`~~ | ~~`/v1/auth/cas/password/*`~~ | 已注释停用（验证码流程） |
 | `logout()` | `POST /v1/auth/logout` | 即使服务端失败也会完成本地登出 |
 
-`AuthSession` 包含 `accessToken` 与 `AuthUser`（`id`、`displayName`、`departmentId`）。`AuthFailure` 携带 `message` 与可选 `code`。`CasPasswordChallenge` 含 `id` 与可空的 `captchaImage`。
+`AuthSession` 包含 `accessToken` 与 `AuthUser`（`id`、`displayName`、`departmentId`）。`AuthFailure` 携带 `message` 与可选 `code`。`CasPasswordChallenge` 类已注释。
 
 API 地址：`String.fromEnvironment('API_BASE_URL')`，默认 Web `http://127.0.0.1:8787`。
 
@@ -75,7 +73,8 @@ API 地址：`String.fromEnvironment('API_BASE_URL')`，默认 Web `http://127.0
 ## profile（我的）
 
 - `ProfilePage`：显示与编辑资料、隐私设置（`discoverable`、`scheduleVisibility`）、深色模式（通过 `AppShell` 的 `onThemeModeChanged`）、退出登录。
-- `ProfileRepository`：`getProfile()`（`GET /v1/me`）、`updateProfile(profile)`（`PATCH /v1/me`）。
+- `ProfileRepository`：`getProfile()`（`GET /v1/me`）、`updateProfile(profile)`（`PATCH /v1/me`）、`getInvites()`（`GET /v1/me/invites`）、`createInvite()`（`POST /v1/me/invites`）。
+- 页面底部的“邀请同学”卡片（`_InviteCard`，key `inviteCard`）显示本月剩余额度，按钮 `createInviteButton` 生成邀请码并在对话框中显示一次（`issuedInviteCode`）。额度用完或未加载完成时按钮禁用。
 
 ---
 
@@ -155,7 +154,7 @@ API 地址：`String.fromEnvironment('API_BASE_URL')`，默认 Web `http://127.0
 
 ## 测试覆盖
 
-`apps/mobile/test/widget_test.dart` 包含 31 个测试，使用假仓库，不发起真实网络请求。测试名称覆盖了以下流程：
+`apps/mobile/test/widget_test.dart` 包含 32 个测试，使用假仓库，不发起真实网络请求。测试名称覆盖了以下流程：
 
 - 未登录时显示登录页，退出登录后返回登录页
 - 深色模式设置、通知铃铛打开收件箱并标记已读
@@ -165,6 +164,8 @@ API 地址：`String.fromEnvironment('API_BASE_URL')`，默认 Web `http://127.0
 - 发现页展示、发送并接受好友请求、共同空闲查询与邀请接受
 - 项目发布、申请、项目负责人接受申请
 - 论坛发帖、公开回复、举报帖子
+- 注册时填写邮箱与邀请码并提交（`registration asks for an email and an invite code`）
+- 个人页生成邀请码并显示剩余额度（`profile can generate an invite code and shows the remaining quota`）
 
 ## 待确认
 

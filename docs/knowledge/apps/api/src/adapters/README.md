@@ -8,7 +8,7 @@
 | --- | --- | --- |
 | `d1-database.ts` | `SqlDatabase`（`D1SqlDatabase`） | Cloudflare Workers，绑定名 `DB` |
 | `node-database.ts` | `SqlDatabase`（`NodeSqliteDatabase`） | 本地 Node 22+，`node:sqlite` |
-| `student-verifier.ts` | `StudentVerifier` | 三种实现，按 `AUTH_MODE` 选择 |
+| `student-verifier.ts` | 无（学生验证已停用，只保留 CAS 票据校验） | — |
 
 ## `D1SqlDatabase`
 
@@ -22,53 +22,24 @@
 - `batch` → 手动 `BEGIN IMMEDIATE` / `COMMIT` / `ROLLBACK`。
 - 额外方法：`applyMigration(sql)`（`exec`）与 `close()`，只供入口与测试使用。
 
-## `student-verifier.ts`
+## `student-verifier.ts`（已停用）
 
-所有实现都必须满足“不记录学校密码、不保存真实姓名、不请求 UCloud 令牌或角色”。
+2026-10-14 起，注册不再验证学生身份（[ADR-021](../../../../decisions.md#adr-021邀请码注册记录邮箱停用学生身份验证)）。这里的学校验证代码已经停用或注释：
 
-### `DevelopmentStudentVerifier`（`AUTH_MODE=dev`）
-
-- 学号必须为 8–12 位数字；密码必须等于 `dev-password`，否则 401 `school_auth_failed`。
-- 返回固定的 `realName: '开发测试学生'`，但该字段会被忽略。
-
-### `DisabledStudentVerifier`（`AUTH_MODE=disabled`，生产默认）
-
-- 任何调用都抛出 503 `student_verification_unavailable`，“注册已关闭”。
-
-### `BuptCasStudentVerifier`（`AUTH_MODE=bupt-cas`）
-
-常量：
-
-- 登录页：`https://auth.bupt.edu.cn/authserver/login?service=https://ucloud.bupt.edu.cn`
-- 校验：`https://auth.bupt.edu.cn/authserver/serviceValidate`
-- 超时：10 秒
-
-| 方法 | 作用 |
+| 类 | 状态 |
 | --- | --- |
-| `authorizationUrl(callbackUrl)` | 构造浏览器跳转 CAS 的地址（`/v1/auth/cas/start` 使用，当前关闭） |
-| `verifyTicket(ticket, callbackUrl)` | 调用 `serviceValidate`，解析 XML，学号取 `cas:user`（回退 `uid` / `employeeNumber` 属性），必须为 8–12 位数字；返回 `{ studentId }` |
-| `beginPasswordChallenge()` | 访问 CAS 登录页取 `execution` 与 cookie；尝试解析验证码 ID，再拉取验证码图片，返回 `{ state, captchaImage }`（图片为 `data:` URI，≤ 256 KB） |
-| `verifyPasswordChallenge({studentId, password, captcha, state})` | 无验证码时直接拒绝（400 `school_auth_captcha_required`）；否则带 cookie、`execution`、验证码 POST 到 CAS 登录页（`redirect: manual`）；302 后取 ticket，以 `ucloud.bupt.edu.cn` 作为 service 调用 `serviceValidate`，并核对学号一致（不一致返回 `school_identity_mismatch`） |
-| `verify(input)` | 无验证码的直接密码提交路径（`POST` 登录页）。遇到验证码提示即返回 503，不绕过。由 `POST /v1/auth/register` 经 `AccountService.register` 调用，预发环境该入口默认关闭 |
+| `DevelopmentStudentVerifier` | `verify` 已注释。类保留，不再被运行时使用。 |
+| `DisabledStudentVerifier` | 保留，不再被运行时使用。 |
+| `BuptCasStudentVerifier.verifyTicket(ticket, callbackUrl)` | **仍有效**，供已关闭的浏览器 CAS 登录使用（`CAS_LOGIN_ENABLED`）。 |
+| `BuptCasStudentVerifier.authorizationUrl(callbackUrl)` | **仍有效**，同上。 |
+| `BuptCasStudentVerifier.verify` | **已注释**：学校密码直接提交。 |
+| `beginPasswordChallenge` / `fetchDynamicCaptchaId` / `verifyPasswordChallenge` | **已注释**：验证码流程。 |
 
-错误码（CAS 相关）：
+不再使用的类型 `StudentVerifier` 和 `VerifiedStudent` 也已注释。
 
-| code | HTTP | 含义 |
-| --- | --- | --- |
-| `school_auth_unavailable` | 503 | CAS 不可达、超时或页面结构异常；**不计入密码失败** |
-| `school_auth_captcha_required` | 400 / 503 | 需要验证码 |
-| `school_auth_captcha_invalid` | 401 | 验证码错误或过期，可重试（最多 3 次） |
-| `school_auth_failed` | 401 | 账号或密码错误，计入失败次数 |
-| `school_identity_mismatch` | 401 | CAS 返回的身份与输入学号不一致 |
-| `invalid_cas_ticket` / `invalid_cas_identity` | 401 | 票据或学号格式不合法 |
-
-#### 当前状态（重要）
-
-- 验证码图片获取不稳定：预发环境挑战返回有效 `challengeId`，但 `captchaImage: null`。原因是北邮登录页的验证码由混淆后的前端脚本动态初始化（`login-normal.html` → `index-normal` 脚本），当前解析逻辑没有复现该接口。
-- 因此 `SCHOOL_PASSWORD_REGISTRATION_ENABLED` 在预发保持 `false`。在 `captchaImage` 能被用户在界面中看到之前，**不要提交任何真实密码**。
-- 浏览器跳转式 CAS 因北邮返回“未认证授权的服务”而无法使用，`CAS_LOGIN_ENABLED` 保持 `false`。
+注释代码保留在原文件中，并带有 `[2026-10-14 已停用]` 标记。恢复前需要新的明确批准，并且需要完成安全评审（参见 ADR-006、ADR-007、ADR-021）。
 
 ## 扩展方式
 
-- 新增学生验证来源：实现 `StudentVerifier`，在两个入口的 `AUTH_MODE` 分支中注册，并补充测试（参照 `test/student-verifier.test.ts`）。
+- 新增身份来源前，先确认是否与 ADR-021 冲突。当前注册不接入任何学校验证。
 - 新增数据库后端：实现 `SqlDatabase`，保证 `batch` 原子性，不能改变 SQL 语义。

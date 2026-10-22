@@ -371,6 +371,13 @@ class _FStudyAppState extends State<FStudyApp> {
       filled: true,
       fillColor: Colors.white,
     ),
+    cardTheme: _cardTheme(
+      light: true,
+      colorScheme: ColorScheme.fromSeed(
+        seedColor: const Color(0xFF3559C7),
+        brightness: Brightness.light,
+      ),
+    ),
     useMaterial3: true,
   );
 
@@ -379,6 +386,29 @@ class _FStudyAppState extends State<FStudyApp> {
       seedColor: const Color(0xFF8EA7FF),
       brightness: Brightness.dark,
     ),
+    scaffoldBackgroundColor: const Color(0xFF0F1117),
+    cardTheme: _cardTheme(
+      light: false,
+      colorScheme: ColorScheme.fromSeed(
+        seedColor: const Color(0xFF8EA7FF),
+        brightness: Brightness.dark,
+      ),
+    ),
     useMaterial3: true,
+  );
+
+  static CardThemeData _cardTheme({
+    required bool light,
+    required ColorScheme colorScheme,
+  }) => CardThemeData(
+    elevation: 0,
+    surfaceTintColor: Colors.transparent,
+    color: light
+        ? colorScheme.surfaceContainerLowest
+        : colorScheme.surfaceContainerLow,
+    shape: RoundedRectangleBorder(
+      borderRadius: BorderRadius.circular(16),
+      side: BorderSide(color: colorScheme.outlineVariant),
+    ),
   );
 }

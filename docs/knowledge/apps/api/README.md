@@ -50,21 +50,19 @@ apps/api/
 | --- | --- | --- | --- |
 | `FSTUDY_DB_PATH` | 可选，默认 `./fstudy.sqlite` | — | 本地 SQLite 文件路径（已在 `.gitignore`） |
 | `PORT` | 可选，默认 `8787` | — | 监听端口 |
-| `AUTH_MODE` | `dev`（默认）/ `bupt-cas` / `disabled` | `vars`，生产为 `disabled` | 选择学生身份验证器 |
-| `STUDENT_ID_PEPPER` | 可选；生产 `NODE_ENV=production` 时必须 ≥ 32 字符 | **必须**（secret），< 32 字符时返回 503 | 学号 HMAC 密钥 |
+| `INVITE_REGISTRATION_ENABLED` | 默认开启（设为 `false` 才关闭） | 默认关闭（设为 `true` 才开启）；生产不设置 | 是否允许注册（需要邀请码，ADR-021） |
+| `STUDENT_ID_PEPPER` | 可选；生产 `NODE_ENV=production` 时必须 ≥ 32 字符 | **必须**（secret），< 32 字符时返回 503 | 历史学号 HMAC 密钥；新账户不使用 |
 | `ALLOWED_ORIGINS` | 默认包含 `127.0.0.1/localhost` 的 8080 与 8081 | `vars` | CORS 白名单，逗号分隔，禁止 `*` |
-| `SCHOOL_PASSWORD_REGISTRATION_ENABLED` | `AUTH_MODE=dev` 时始终开启 | `true` 才开启 | 是否允许“学校密码”式注册（含验证码流程） |
 | `CAS_LOGIN_ENABLED` | `true` 才开启 | `vars` | 浏览器跳转式 CAS（当前因北邮拒绝服务授权而关闭） |
 | `CAS_CALLBACK_URL` | 可选 | `vars` | 必须是 `https://`，不带 query/hash/凭据 |
-| `CAS_STATE_ENCRYPTION_KEY` | 可选；注册开启且 `bupt-cas` 时 ≥ 32 字符 | secret | 加密验证码会话状态（AES-GCM） |
 | `ADMIN_BOOTSTRAP_USERNAME` / `ADMIN_BOOTSTRAP_PASSWORD` | 可选 | 可选 secret | 首次启动时创建管理员；已存在管理员则忽略 |
 
-注意：`node.ts` 中 `schoolPasswordRegistrationEnabled` 对 `dev` 模式恒为真，而 `worker.ts` 同样如此；生产 `AUTH_MODE=disabled` 时两者都为假。
+`AUTH_MODE`、`SCHOOL_PASSWORD_REGISTRATION_ENABLED`、`CAS_STATE_ENCRYPTION_KEY` 已不被代码读取（ADR-021）。验证码与学校验证代码已注释，见 [adapters/README.md](./src/adapters/README.md)。
 
 ## 部署配置
 
-- `wrangler.jsonc`（生产）：`name: fstudy-api`，`AUTH_MODE: disabled`，`database_id` 仍是占位符 `REPLACE_WITH_D1_DATABASE_ID`，`ALLOWED_ORIGINS` 为占位符。**未部署**。
-- `wrangler.staging.jsonc`（预发）：`name: fstudy-api-staging`，`workers_dev: true`，`AUTH_MODE: bupt-cas`，`SCHOOL_PASSWORD_REGISTRATION_ENABLED: false`，`CAS_LOGIN_ENABLED: false`，D1 库 `fstudy-staging`，允许来源 `https://fstudy-student-staging.pages.dev`。
+- `wrangler.jsonc`（生产）：`name: fstudy-api`，`database_id` 仍是占位符 `REPLACE_WITH_D1_DATABASE_ID`，`ALLOWED_ORIGINS` 为占位符，不设置 `INVITE_REGISTRATION_ENABLED`（注册关闭）。**未部署**。
+- `wrangler.staging.jsonc`（预发）：`name: fstudy-api-staging`，`workers_dev: true`，`INVITE_REGISTRATION_ENABLED: true`，`CAS_LOGIN_ENABLED: false`；`AUTH_MODE` 与学校验证开关已注释。D1 库 `fstudy-staging`，允许来源 `https://fstudy-student-staging.pages.dev`。
 - 两份配置共用 `main: src/entrypoints/worker.ts` 与 `migrations_dir: migrations`。
 - 不要提交 `.dev.vars`、`.env`、任何 secret 值。
 

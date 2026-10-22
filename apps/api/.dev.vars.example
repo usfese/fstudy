@@ -1,4 +1,4 @@
-AUTH_MODE=disabled
+INVITE_REGISTRATION_ENABLED=true
 STUDENT_ID_PEPPER=replace-with-a-long-random-secret
 ADMIN_BOOTSTRAP_USERNAME=operator
 ADMIN_BOOTSTRAP_PASSWORD=replace-with-a-random-password-at-least-14-chars

@@ -54,7 +54,6 @@ export class AvailabilityService {
 
   constructor(
     private readonly database: SqlDatabase,
-    private readonly clock: () => Date = () => new Date(),
   ) {
     this.notifications = new NotificationService(database);
   }
@@ -63,9 +62,8 @@ export class AvailabilityService {
     const result = await this.database.execute<{ pair_key: string; visibility: Visibility }>({
       sql: `SELECT f.pair_key, u.schedule_visibility AS visibility
             FROM friendships f JOIN users u ON u.id = ?
-            WHERE f.pair_key = ? AND u.status = 'active'
-              AND EXISTS (SELECT 1 FROM student_identities si WHERE si.user_id = u.id AND si.expires_at > ?)`,
-      params: [friendId, pairKey(userId, friendId), this.clock().toISOString()],
+            WHERE f.pair_key = ? AND u.status = 'active'`,
+      params: [friendId, pairKey(userId, friendId)],
     });
     const row = result.rows[0];
     if (!row) throw new DomainError('friendship_required', '只能查询好友的共同空闲时间', 403);

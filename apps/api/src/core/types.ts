@@ -17,23 +17,23 @@ export interface SqlDatabase {
   batch(statements: SqlStatement[]): Promise<void>;
 }
 
-export type VerifiedStudent = {
-  studentId: string;
-  realName: string | null;
-  departmentId: string | null;
-};
+// [2026-10-14 已停用] 验证码 / 学校密码验证相关代码，保留以便日后恢复，勿直接启用：
+// export type VerifiedStudent = {
+  // studentId: string;
+  // realName: string | null;
+  // departmentId: string | null;
+// };
 
-export interface StudentVerifier {
-  verify(input: {
-    studentId: string;
-    password: string;
-    claimedDepartmentId: string | null;
-  }): Promise<VerifiedStudent>;
-}
+// export interface StudentVerifier {
+  // verify(input: {
+    // studentId: string;
+    // password: string;
+    // claimedDepartmentId: string | null;
+  // }): Promise<VerifiedStudent>;
+// }
 
 export type RuntimeDependencies = {
   database: SqlDatabase;
-  studentVerifier: StudentVerifier;
   studentIdPepper: string;
   clock?: () => Date;
   allowedOrigins?: string[];
@@ -41,6 +41,5 @@ export type RuntimeDependencies = {
   adminBootstrapPassword?: string | undefined;
   casCallbackUrl?: string | undefined;
   casLoginEnabled?: boolean;
-  schoolPasswordRegistrationEnabled?: boolean;
-  casStateEncryptionKey?: string | undefined;
+  inviteRegistrationEnabled?: boolean;
 };

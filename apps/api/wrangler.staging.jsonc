@@ -6,8 +6,9 @@
   "workers_dev": true,
   "preview_urls": false,
   "vars": {
-    "AUTH_MODE": "bupt-cas",
-    "SCHOOL_PASSWORD_REGISTRATION_ENABLED": "false",
+    // [2026-10-14 已停用] "AUTH_MODE": "bupt-cas",  学校验证与验证码流程已停用，代码不再读取该变量
+    // [2026-10-14 已停用] "SCHOOL_PASSWORD_REGISTRATION_ENABLED": "false",
+    "INVITE_REGISTRATION_ENABLED": "true",
     "CAS_LOGIN_ENABLED": "false",
     "CAS_CALLBACK_URL": "https://fstudy-api-staging.a07450865.workers.dev/v1/auth/cas/callback",
     "ALLOWED_ORIGINS": "https://fstudy-student-staging.pages.dev"

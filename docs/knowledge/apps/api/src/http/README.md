@@ -51,26 +51,32 @@
 
 ### 身份认证（学生）
 
+注册与登录只使用用户名，不验证学生身份（ADR-021、ADR-023）。`/v1/auth/cas/*` 的浏览器登录路由保留但关闭，且不能创建新账户；验证码挑战路由已注释停用。
+
 | 方法 | 路径 | 鉴权 | 请求体 / 参数 | 响应 |
 | --- | --- | --- | --- | --- |
-| POST | `/v1/auth/login` | 否 | `LoginSchema`：`studentId` (1–32)、`appPassword` (1–128) | 200 `{ accessToken, expiresAt, user }` |
-| POST | `/v1/auth/register` | 否 | `RegisterSchema`：`studentId`、`schoolPassword`、`appPassword` (10–128)、`displayName` (1–30)、`departmentId` (可空) | 201 `{ accessToken, expiresAt, user }`；`schoolPasswordRegistrationEnabled` 为假时 403 `browser_identity_auth_required` |
+| POST | `/v1/auth/login` | 否 | `LoginSchema`：`username` (1–32，不区分大小写)、`appPassword` (1–128) | 200 `{ accessToken, expiresAt, user }` |
+| POST | `/v1/auth/register` | 否 | `RegisterSchema`：`username`（3–20 位字母、数字或下划线）、`email`（有效邮箱，≤254，记录但不验证）、`appPassword`（10–128）、`displayName`（可选，1–30，默认同用户名）、`departmentId`（可空）、`inviteCode`（8–32，不区分大小写、忽略分隔符） | 201 `{ accessToken, expiresAt, user }`；邀请码无效或已用 403 `invalid_invite_code`；额度不适用于注册；注册关闭 403 `registration_closed`；用户名已存在 409 `username_already_registered`；邮箱已注册 409 `email_already_registered` |
 | POST | `/v1/auth/logout` | 是 | — | 200 `{ ok: true }` |
 | POST | `/v1/auth/cas/start` | 否（需 `Origin` 白名单） | — | 200 `{ authorizationUrl }`；`CAS_LOGIN_ENABLED` 为假时 503 `cas_login_disabled` |
 | GET | `/v1/auth/cas/callback?ticket&state` | 否 | 查询参数 | 303 重定向到 `{return_origin}/login#cas_code=...&cas_state=...`；当前关闭 |
-| POST | `/v1/auth/cas/complete` | 否 | `CasCompleteSchema`：`code`、`state`（32–128）、`displayName?`、`appPassword?`、`departmentId?` | 201 `{ accessToken, expiresAt, user }`；首次注册但缺少资料时 409 `cas_registration_required` |
-| POST | `/v1/auth/cas/password/challenge` | 否 | `CasPasswordChallengeSchema`：`studentId`（8–12 位数字） | 200 `{ challengeId, captchaImage, expiresInSeconds: 300 }`；`captchaImage` 可能为 `null`（当前预发状况）。同一学号 15 分钟内最多 5 次（429） |
-| POST | `/v1/auth/cas/password/refresh` | 否 | `CasPasswordRefreshSchema`：`challengeId`、`studentId` | 200 `{ challengeId, captchaImage, expiresInSeconds }`，原挑战作废 |
-| POST | `/v1/auth/cas/password/verify` | 否 | `CasPasswordVerificationSchema`：`challengeId`、`studentId`、`schoolPassword`、`captcha?`（≤32）、`displayName`、`appPassword`、`departmentId?` | 201 `{ accessToken, expiresAt, user }`；验证码错误且未超过 3 次时 401 `school_auth_captcha_invalid` 且 `retryAllowed: true` |
+| POST | `/v1/auth/cas/complete` | 否 | `CasCompleteSchema`：`code`、`state`（32–128）、`displayName?`、`appPassword?`、`departmentId?` | 没有历史 `student_identities` 行时 403 `invite_registration_required`；仅历史身份可签发会话 |
 
-注意：`/v1/auth/cas/complete` 对已存在的身份直接创建会话（`allowExistingSession`），不需要重新提交资料。
+注意：`/v1/auth/cas/complete` 仅供历史账户使用，不能创建或升级账户。该路由当前关闭。
 
 ### 个人资料与设置
 
 | 方法 | 路径 | 请求 | 响应 |
 | --- | --- | --- | --- |
-| GET | `/v1/me` | — | `{ user }` |
+| GET | `/v1/me` | — | `{ user, email }`；`email` 为本人邮箱（未注册前的历史账户可能为 null） |
 | PATCH | `/v1/me` | `ProfileSchema`：`displayName` (1–30)、`bio` (≤300)、`departmentId` (可空)、`discoverable` (bool)、`scheduleVisibility` ∈ `private`/`busy_only`/`course_name`/`full` | `{ user }` |
+
+### 邀请码
+
+| 方法 | 路径 | 请求 | 响应 |
+| --- | --- | --- | --- |
+| GET | `/v1/me/invites` | — | `{ month, quota: 5, remainingThisMonth, invites: [{ id, createdAt, status: 'used' \| 'unused', usedAt }] }`（不返回邀请码本身） |
+| POST | `/v1/me/invites` | `{}`（需 JSON Content-Type） | 201 `{ code, remainingThisMonth, month }`；码只显示一次。本月额度用完 429 `invite_quota_exceeded` |
 | GET | `/v1/me/academic-settings` | — | `{ semesterStartDate }`（`YYYY-MM-DD` 或 null） |
 | PUT | `/v1/me/academic-settings` | `{ semesterStartDate }`：ISO 日期或 null，**必须为星期一** | `{ semesterStartDate }`；非周一返回 400 `invalid_semester_start_date` |
 
@@ -183,6 +189,7 @@
 | GET | `/v1/admin/tags` | — | `{ tags }` |
 | POST | `/v1/admin/tags` | `{ id?, category: interest/field/goal, name (1–40), active }` | `{ tag }` |
 | GET | `/v1/admin/audit` | — | `{ entries }`（最近的管理操作） |
+| POST | `/v1/admin/invites` | `{}` | 201 `{ code }`；运营码，不占用个人额度，写入审计日志 |
 
 所有写操作都会写入 `admin_audit_log`（`actor`、`action`、`entity_type`、`entity_id`）。
 
@@ -192,13 +199,17 @@
 | --- | --- | --- |
 | `authentication_required` | 401 | 缺少令牌 |
 | `invalid_session` | 401 | 令牌无效、过期、已撤销或用户被封禁 |
-| `invalid_credentials` | 401 | 登录的学号或密码错误（不区分是否存在账户） |
+| `invalid_credentials` | 401 | 登录的用户名或密码错误（不区分是否存在账户） |
 | `authentication_rate_limited` | 429 | 15 分钟内失败 5 次 |
-| `browser_identity_auth_required` | 403 | 注册入口关闭 |
-| `identity_reverification_required` | 403 | 学号身份已超过 365 天，需重新完成学校验证（ADR-018） |
-| `student_already_registered` | 409 | 该学号已注册 |
+| `registration_closed` | 403 | 注册已关闭（`INVITE_REGISTRATION_ENABLED` 未开启） |
+| `invite_registration_required` | 403 | CAS 结果不能绕过邀请码创建新账户 |
+| `invalid_invite_code` | 403 | 邀请码无效或已被使用 |
+| `invite_quota_exceeded` | 429 | 本月邀请码额度已用完（每人每月 5 个） |
+| `email_already_registered` | 409 | 邮箱已注册 |
+| `registration_conflict` | 409 | 注册时用户名或邮箱发生并发冲突 |
+| `username_already_registered` | 409 | 该用户名已被使用 |
 | `student_not_registered` | 404 | CAS 登录时身份不存在 |
-| `school_auth_*` / `school_identity_mismatch` | 401/503 | 见 [adapters/README.md](../adapters/README.md) |
+| `school_auth_*` / `school_identity_mismatch` | 401/503 | 学校验证已停用，这些错误码只在已注释的代码中出现，见 [adapters/README.md](../adapters/README.md) |
 | `cas_*` / `invalid_cas_*` | 400–503 | 浏览器 CAS 与验证码流程 |
 | `request_too_large` | 413 | 请求体超过 64 KB |
 | `unsupported_media_type` | 415 | 非 JSON 请求 |

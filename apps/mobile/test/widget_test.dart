@@ -22,21 +22,28 @@ class FakeAuthRepository implements AuthRepository {
 
   @override
   Future<AuthSession> login({
-    required String studentId,
+    required String username,
     required String appPassword,
   }) {
     throw UnimplementedError();
   }
 
+  String? registeredUsername;
+  String? registeredEmail;
+  String? registeredInviteCode;
+
   @override
   Future<AuthSession> register({
-    required String studentId,
-    required String schoolPassword,
+    required String username,
+    required String email,
     required String appPassword,
-    required String displayName,
     required String? departmentId,
-  }) {
-    throw UnimplementedError();
+    required String inviteCode,
+  }) async {
+    registeredUsername = username;
+    registeredEmail = email;
+    registeredInviteCode = inviteCode;
+    return session ?? testSession;
   }
 
   @override
@@ -53,32 +60,33 @@ class FakeAuthRepository implements AuthRepository {
     String? departmentId,
   }) async => session ?? testSession;
 
-  @override
-  Future<CasPasswordChallenge> beginCasPasswordChallenge(
-    String studentId,
-  ) async => const CasPasswordChallenge(
-    id: 'test-challenge',
-    captchaImage: 'data:image/png;base64,AA==',
-  );
+  // [2026-10-14 已停用] 验证码 / 学校密码验证相关代码，保留以便日后恢复，勿直接启用：
+  // @override
+  // Future<CasPasswordChallenge> beginCasPasswordChallenge(
+  // String studentId,
+  // ) async => const CasPasswordChallenge(
+  // id: 'test-challenge',
+  // captchaImage: 'data:image/png;base64,AA==',
+  // );
+  //
+  // @override
+  // Future<CasPasswordChallenge> refreshCasPasswordChallenge({
+  // required String challengeId,
+  // required String studentId,
+  // }) async => const CasPasswordChallenge(
+  // id: 'refreshed-challenge',
+  // captchaImage: 'data:image/png;base64,AA==',
+  // );
 
-  @override
-  Future<CasPasswordChallenge> refreshCasPasswordChallenge({
-    required String challengeId,
-    required String studentId,
-  }) async => const CasPasswordChallenge(
-    id: 'refreshed-challenge',
-    captchaImage: 'data:image/png;base64,AA==',
-  );
-
-  @override
-  Future<AuthSession> verifyCasPasswordChallenge({
-    required String challengeId,
-    required String studentId,
-    required String schoolPassword,
-    required String? captcha,
-    required String displayName,
-    required String appPassword,
-  }) async => session ?? testSession;
+  // @override
+  // Future<AuthSession> verifyCasPasswordChallenge({
+  // required String challengeId,
+  // required String studentId,
+  // required String schoolPassword,
+  // required String? captcha,
+  // required String displayName,
+  // required String appPassword,
+  // }) async => session ?? testSession;
 
   @override
   Future<void> logout() async => loggedOut = true;
@@ -213,6 +221,21 @@ class FakeProfileRepository implements ProfileRepository {
   Future<UserProfile> updateProfile(UserProfile value) async {
     profile = value;
     return profile;
+  }
+
+  int inviteRemaining = 5;
+
+  @override
+  Future<InviteOverview> getInvites() async =>
+      InviteOverview(remainingThisMonth: inviteRemaining, quota: 5);
+
+  @override
+  Future<IssuedInvite> createInvite() async {
+    inviteRemaining -= 1;
+    return IssuedInvite(
+      code: 'ABCD-EFGH-JKMN',
+      remainingThisMonth: inviteRemaining,
+    );
   }
 }
 
@@ -640,25 +663,26 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('FStudy'), findsOneWidget);
-    expect(find.byKey(const Key('studentIdField')), findsOneWidget);
+    expect(find.byKey(const Key('usernameField')), findsOneWidget);
     expect(find.byKey(const Key('appPasswordField')), findsOneWidget);
     expect(find.text('登录你的课业空间'), findsOneWidget);
   });
 
-  testWidgets(
-    'CAS browser login starts without showing a school password field',
-    (tester) async {
-      final repository = FakeAuthRepository();
-      await tester.pumpWidget(FStudyApp(repository: repository));
-      await tester.pumpAndSettle();
+  // [2026-10-14 已停用] 验证码 / 学校密码验证相关代码，保留以便日后恢复，勿直接启用：
+  // testWidgets(
+  // 'CAS browser login starts without showing a school password field',
+  // (tester) async {
+  // final repository = FakeAuthRepository();
+  // await tester.pumpWidget(FStudyApp(repository: repository));
+  // await tester.pumpAndSettle();
 
-      await tester.tap(find.byKey(const Key('buptCasLoginButton')));
-      await tester.pumpAndSettle();
+  // await tester.tap(find.byKey(const Key('buptCasLoginButton')));
+  // await tester.pumpAndSettle();
 
-      expect(repository.casStarted, isTrue);
-      expect(find.byKey(const Key('schoolPasswordField')), findsNothing);
-    },
-  );
+  // expect(repository.casStarted, isTrue);
+  // expect(find.byKey(const Key('schoolPasswordField')), findsNothing);
+  // },
+  // );
 
   testWidgets('logging out returns to the login form', (tester) async {
     final repository = FakeAuthRepository(
@@ -947,7 +971,7 @@ void main() {
               find.byKey(const Key('scheduleWeekSelector')),
             )
             .value,
-        1,
+        DateTime.now().difference(DateTime(2026, 10, 12)).inDays ~/ 7 + 1,
       );
     },
   );
@@ -1110,6 +1134,65 @@ void main() {
     final title = tester.widget<Text>(find.text('复习计算机网络'));
     expect(title.style?.decoration, TextDecoration.lineThrough);
   });
+
+  testWidgets('registration asks for an email and an invite code', (
+    tester,
+  ) async {
+    final repository = FakeAuthRepository();
+    await tester.pumpWidget(FStudyApp(repository: repository));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('inviteCodeField')), findsNothing);
+
+    await tester.tap(find.text('注册'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(const Key('usernameField')), 'student01');
+    await tester.enterText(
+      find.byKey(const Key('emailField')),
+      'student@example.edu',
+    );
+    await tester.enterText(
+      find.byKey(const Key('inviteCodeField')),
+      'ABCD-EFGH-JKMN',
+    );
+    await tester.enterText(
+      find.byKey(const Key('appPasswordField')),
+      'correct-horse-battery',
+    );
+    await tester.ensureVisible(find.byKey(const Key('submitAuthButton')));
+    await tester.tap(find.byKey(const Key('submitAuthButton')));
+    await tester.pumpAndSettle();
+
+    expect(repository.registeredUsername, 'student01');
+    expect(repository.registeredEmail, 'student@example.edu');
+    expect(repository.registeredInviteCode, 'ABCD-EFGH-JKMN');
+  });
+
+  testWidgets(
+    'profile can generate an invite code and shows the remaining quota',
+    (tester) async {
+      final profileRepository = FakeProfileRepository();
+      await tester.pumpWidget(
+        testApp(FakeAcademicRepository(), profileRepository: profileRepository),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('我的'));
+      await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(
+        find.byKey(const Key('createInviteButton')),
+        300,
+        scrollable: find.byType(Scrollable).last,
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('本月还可生成 5 / 5 个邀请码'), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('createInviteButton')));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('issuedInviteCode')), findsOneWidget);
+      expect(find.text('ABCD-EFGH-JKMN'), findsOneWidget);
+      expect(find.text('本月还可生成 4 / 5 个邀请码'), findsOneWidget);
+    },
+  );
 
   testWidgets('profile and schedule privacy settings can be saved', (
     tester,
