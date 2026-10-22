@@ -32,6 +32,11 @@ export const ProfileSchema = z.object({
   scheduleVisibility: z.enum(['private', 'busy_only', 'course_name', 'full']),
 });
 
+export const CreateTagSchema = z.object({
+  name: z.string().trim().min(1).max(40),
+  category: z.enum(['interest', 'field', 'goal']),
+});
+
 export const UserTagsSchema = z.object({
   tags: z.array(z.object({
     tagId: z.string().min(1).max(64),

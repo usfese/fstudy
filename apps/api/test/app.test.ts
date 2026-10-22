@@ -949,6 +949,68 @@ describe('FStudy API', () => {
     expect(revoked.status).toBe(401);
   });
 
+  it('creates global user tags, reuses duplicates, and applies them to a profile', async () => {
+    const app = await testApp();
+    const student = await register(app, { username: 'tagmaker', displayName: '标签同学' });
+    const headers = (token: string) => ({
+      authorization: `Bearer ${token}`,
+      'content-type': 'application/json',
+    });
+
+    const unauthorized = await app.request('/v1/tags', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name: '校园摄影', category: 'interest' }),
+    });
+    expect(unauthorized.status).toBe(401);
+
+    const created = await app.request('/v1/tags', {
+      method: 'POST',
+      headers: headers(student.accessToken),
+      body: JSON.stringify({ name: ' 校园  摄影 ', category: 'interest' }),
+    });
+    expect(created.status).toBe(201);
+    const createdTag = ((await created.json()) as { tag: { id: string; name: string; category: string } }).tag;
+    expect(createdTag).toMatchObject({ name: '校园 摄影', category: 'interest' });
+
+    const duplicate = await app.request('/v1/tags', {
+      method: 'POST',
+      headers: headers(student.accessToken),
+      body: JSON.stringify({ name: '校园 摄影', category: 'interest' }),
+    });
+    expect(duplicate.status).toBe(200);
+    expect(((await duplicate.json()) as { tag: { id: string } }).tag.id).toBe(createdTag.id);
+
+    const otherCategory = await app.request('/v1/tags', {
+      method: 'POST',
+      headers: headers(student.accessToken),
+      body: JSON.stringify({ name: '校园 摄影', category: 'field' }),
+    });
+    expect(otherCategory.status).toBe(201);
+    expect(((await otherCategory.json()) as { tag: { id: string } }).tag.id).not.toBe(createdTag.id);
+
+    const invalid = await app.request('/v1/tags', {
+      method: 'POST',
+      headers: headers(student.accessToken),
+      body: JSON.stringify({ name: '无效分类', category: 'unknown' }),
+    });
+    expect(invalid.status).toBe(400);
+
+    const applied = await app.request('/v1/me/tags', {
+      method: 'PUT',
+      headers: headers(student.accessToken),
+      body: JSON.stringify({
+        tags: [{ tagId: createdTag.id, isCore: false, visible: true, usedForRecommendation: true }],
+      }),
+    });
+    expect(applied.status).toBe(200);
+    const ownTags = await app.request('/v1/me/tags', { headers: headers(student.accessToken) });
+    expect((await ownTags.json() as { tags: Array<{ id: string }> }).tags.map((tag) => tag.id)).toContain(createdTag.id);
+
+    const catalog = await app.request('/v1/tags', { headers: headers(student.accessToken) });
+    expect((await catalog.json() as { tags: Array<{ id: string }> }).tags.map((tag) => tag.id)).toContain(createdTag.id);
+  });
+
   it('creates a controlled tag, applies tag updates, and records audit entries', async () => {
     const app = await testApp();
     const login = await app.request('/v1/admin/auth/login', {

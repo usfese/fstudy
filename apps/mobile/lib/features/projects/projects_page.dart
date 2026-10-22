@@ -447,7 +447,9 @@ class _ProjectDialogState extends State<_ProjectDialog> {
   final _form = GlobalKey<FormState>();
   final _title = TextEditingController();
   final _description = TextEditingController();
+  final _tagSearch = TextEditingController();
   final Set<String> _tagIds = {};
+  String _tagQuery = '';
   int _capacity = 4;
   bool _saving = false;
   String? _error;
@@ -456,6 +458,7 @@ class _ProjectDialogState extends State<_ProjectDialog> {
   void dispose() {
     _title.dispose();
     _description.dispose();
+    _tagSearch.dispose();
     super.dispose();
   }
 
@@ -528,10 +531,26 @@ class _ProjectDialogState extends State<_ProjectDialog> {
                 ),
               ),
               const SizedBox(height: 8),
+              TextField(
+                key: const Key('projectTagSearchField'),
+                controller: _tagSearch,
+                onChanged: (value) => setState(() => _tagQuery = value),
+                decoration: const InputDecoration(
+                  hintText: '搜索标签',
+                  prefixIcon: Icon(Icons.search),
+                  isDense: true,
+                ),
+              ),
+              const SizedBox(height: 8),
               Wrap(
                 spacing: 8,
                 runSpacing: 8,
                 children: widget.tags
+                    .where(
+                      (tag) => tag.name.toLowerCase().contains(
+                        _tagQuery.trim().toLowerCase(),
+                      ),
+                    )
                     .map(
                       (tag) => FilterChip(
                         key: Key('project-tag-${tag.id}'),

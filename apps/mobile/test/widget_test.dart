@@ -240,10 +240,14 @@ class FakeProfileRepository implements ProfileRepository {
 }
 
 class FakeSocialRepository implements SocialRepository {
-  final List<SocialTag> availableTags = const [
-    SocialTag(id: 'interest-photography', category: 'interest', name: '摄影'),
-    SocialTag(id: 'field-ai', category: 'field', name: '人工智能'),
-    SocialTag(id: 'goal-study', category: 'goal', name: '找学习搭子'),
+  final List<SocialTag> availableTags = [
+    const SocialTag(
+      id: 'interest-photography',
+      category: 'interest',
+      name: '摄影',
+    ),
+    const SocialTag(id: 'field-ai', category: 'field', name: '人工智能'),
+    const SocialTag(id: 'goal-study', category: 'goal', name: '找学习搭子'),
   ];
   List<SocialTag> myTags = [];
   List<DiscoveredUser> users = [];
@@ -260,6 +264,26 @@ class FakeSocialRepository implements SocialRepository {
 
   @override
   Future<List<SocialTag>> listMyTags() async => myTags;
+
+  @override
+  Future<SocialTag> createTag({
+    required String name,
+    required String category,
+  }) async {
+    for (final tag in availableTags) {
+      if (tag.category == category &&
+          tag.name.toLowerCase() == name.toLowerCase()) {
+        return tag;
+      }
+    }
+    final tag = SocialTag(
+      id: '$category-${availableTags.length}',
+      category: category,
+      name: name,
+    );
+    availableTags.add(tag);
+    return tag;
+  }
 
   @override
   Future<void> replaceMyTags(List<SocialTag> tags) async {
@@ -666,6 +690,21 @@ void main() {
     expect(find.byKey(const Key('usernameField')), findsOneWidget);
     expect(find.byKey(const Key('appPasswordField')), findsOneWidget);
     expect(find.text('登录你的课业空间'), findsOneWidget);
+
+    final usernameField = tester.widget<EditableText>(
+      find.descendant(
+        of: find.byKey(const Key('usernameField')),
+        matching: find.byType(EditableText),
+      ),
+    );
+    expect(usernameField.autofillHints, contains(AutofillHints.username));
+    final passwordField = tester.widget<EditableText>(
+      find.descendant(
+        of: find.byKey(const Key('appPasswordField')),
+        matching: find.byType(EditableText),
+      ),
+    );
+    expect(passwordField.autofillHints, contains(AutofillHints.password));
   });
 
   // [2026-10-14 已停用] 验证码 / 学校密码验证相关代码，保留以便日后恢复，勿直接启用：
@@ -1244,13 +1283,19 @@ void main() {
     );
     await tester.tap(find.byKey(const Key('manageTagsButton')));
     await tester.pumpAndSettle();
+    final tagList = find
+        .descendant(
+          of: find.byKey(const Key('tagSettingsList')),
+          matching: find.byType(Scrollable),
+        )
+        .first;
     await tester.tap(find.byKey(const Key('tag-field-ai')));
     await tester.pumpAndSettle();
     await tester.tap(find.widgetWithText(FilterChip, '核心'));
     await tester.scrollUntilVisible(
       find.byKey(const Key('saveTagsButton')),
       300,
-      scrollable: find.byType(Scrollable).last,
+      scrollable: tagList,
     );
     await tester.tap(find.byKey(const Key('saveTagsButton')));
     await tester.pumpAndSettle();
@@ -1260,6 +1305,56 @@ void main() {
     expect(socialRepository.myTags.single.visible, isTrue);
     expect(socialRepository.myTags.single.usedForRecommendation, isTrue);
     expect(find.text('标签设置已保存'), findsOneWidget);
+  });
+
+  testWidgets('searches and creates a global tag', (tester) async {
+    final socialRepository = FakeSocialRepository();
+    await tester.pumpWidget(
+      testApp(FakeAcademicRepository(), socialRepository: socialRepository),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('我的'));
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('manageTagsButton')),
+      300,
+      scrollable: find.byType(Scrollable).last,
+    );
+    await tester.tap(find.byKey(const Key('manageTagsButton')));
+    await tester.pumpAndSettle();
+    final tagList = find
+        .descendant(
+          of: find.byKey(const Key('tagSettingsList')),
+          matching: find.byType(Scrollable),
+        )
+        .first;
+
+    await tester.enterText(find.byKey(const Key('tagSearchField')), '摄影');
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('tag-interest-photography')), findsOneWidget);
+    expect(find.byKey(const Key('tag-field-ai')), findsNothing);
+
+    await tester.tap(find.byKey(const Key('createTagButton')));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(const Key('newTagNameField')), '校园摄影');
+    await tester.tap(find.byKey(const Key('confirmCreateTagButton')));
+    await tester.pumpAndSettle();
+
+    expect(
+      socialRepository.availableTags.any((tag) => tag.name == '校园摄影'),
+      isTrue,
+    );
+    expect(find.text('标签已创建并选中'), findsOneWidget);
+    expect(find.byKey(const Key('tag-interest-3')), findsOneWidget);
+
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('saveTagsButton')),
+      300,
+      scrollable: tagList,
+    );
+    await tester.tap(find.byKey(const Key('saveTagsButton')));
+    await tester.pumpAndSettle();
+    expect(socialRepository.myTags.any((tag) => tag.name == '校园摄影'), isTrue);
   });
 
   testWidgets('discovery displays public profile and common tags', (

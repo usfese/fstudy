@@ -30,6 +30,44 @@ export class TagService {
     return result.rows;
   }
 
+  async create(input: { name: string; category: Tag['category'] }): Promise<{ tag: Tag; created: boolean }> {
+    const name = input.name.trim().replace(/\s+/g, ' ');
+    if (!name) throw new DomainError('invalid_tag_name', '标签名称不能为空', 400);
+    if (name.length > 40) throw new DomainError('invalid_tag_name', '标签名称最多 40 个字符', 400);
+
+    const existing = await this.database.execute<TagRow & { active: number }>({
+      sql: 'SELECT id, category, name, active FROM tags WHERE category = ? AND lower(name) = lower(?) LIMIT 1',
+      params: [input.category, name],
+    });
+    const found = existing.rows[0];
+    if (found) {
+      if (found.active !== 1) {
+        throw new DomainError('tag_inactive', '该标签已停用，请联系管理员', 409);
+      }
+      return { tag: { id: found.id, category: found.category, name: found.name }, created: false };
+    }
+
+    const id = `${input.category}-${crypto.randomUUID()}`;
+    try {
+      await this.database.execute({
+        sql: 'INSERT INTO tags (id, category, name, active) VALUES (?, ?, ?, 1)',
+        params: [id, input.category, name],
+      });
+    } catch {
+      // A concurrent request may have inserted the same category/name first.
+      const raced = await this.database.execute<TagRow & { active: number }>({
+        sql: 'SELECT id, category, name, active FROM tags WHERE category = ? AND lower(name) = lower(?) LIMIT 1',
+        params: [input.category, name],
+      });
+      const winner = raced.rows[0];
+      if (winner?.active === 1) {
+        return { tag: { id: winner.id, category: winner.category, name: winner.name }, created: false };
+      }
+      throw new DomainError('duplicate_tag', '同分类下已存在此标签', 409);
+    }
+    return { tag: { id, category: input.category, name }, created: true };
+  }
+
   async listUserTags(userId: string): Promise<UserTag[]> {
     const result = await this.database.execute<UserTagRow>({
       sql: `SELECT t.id, t.category, t.name, ut.is_core, ut.visible, ut.used_for_recommendation

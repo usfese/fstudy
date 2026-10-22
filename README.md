@@ -4,8 +4,9 @@
 
 - Hono API，同一份业务代码运行于 Node.js 和 Cloudflare Workers
 - 本地 `node:sqlite` 与生产 Cloudflare D1
-- 邀请码注册（每人每月可生成 5 个邀请码）与邮箱记录；不验证学生身份（ADR-021）
-- 注册、登录、个人资料、标签、手动课表和待交作业
+- 用户名 + 邀请码注册（每人每月可生成 5 个邀请码）与邮箱记录；不验证学生身份（ADR-021）
+- 注册、登录、个人资料、全局标签（用户可创建与搜索）、手动课表和待交作业
+- 管理控制台：邀请码生成与复制、用户/内容/举报/标签管理、操作审计
 - OpenAPI 文档端点
 
 ## 本地启动
@@ -42,19 +43,22 @@ curl -X POST http://localhost:8787/v1/auth/register -H 'content-type: applicatio
 
 ## Cloudflare 部署
 
-1. 创建数据库：`pnpm --filter @fstudy/api exec wrangler d1 create fstudy`。
-2. 在 `apps/api/wrangler.jsonc` 中填写返回的 D1 `database_id`。
-3. 写入不可公开且长度充足的 `STUDENT_ID_PEPPER`（仅保留给已停用的 CAS 兼容代码；新账户不使用学号）：
+生产环境已于 2026-10-22 部署，地址与当前配置见上文“生产环境”。重新部署时：
+
+1. 确认 `apps/api/wrangler.jsonc` 中的 D1 `database_id` 与 `ALLOWED_ORIGINS` 指向当前生产资源。
+2. 写入不可公开且长度充足的 `STUDENT_ID_PEPPER`（仅保留给已停用的 CAS 兼容代码；新账户不使用学号）：
 
    ```bash
    pnpm --filter @fstudy/api exec wrangler secret put STUDENT_ID_PEPPER
    ```
 
-4. 将 `apps/api/wrangler.jsonc` 中的 `ALLOWED_ORIGINS` 替换为实际 Web 来源（例如 `https://app.example.com`）。不要使用 `*`。
-5. 执行 `pnpm db:migrate:remote`。
-6. 配置生产认证方式后再部署：`pnpm --filter @fstudy/api deploy`。
+3. 执行远程迁移：`pnpm db:migrate:remote`（只追加，不修改已部署迁移）。
+4. 使用 Node 22 部署 API：`pnpm dlx node@22 node_modules/wrangler/bin/wrangler.js deploy`（在 `apps/api` 下）。
+5. 构建学生 Web：`flutter build web --release --dart-define=API_BASE_URL=https://fstudy-api.a07450865.workers.dev`。
+6. 部署学生 Web Worker：`pnpm dlx node@22 node_modules/wrangler/bin/wrangler.js deploy --config ../mobile/wrangler.jsonc`（在 `apps/api` 下）。
+7. 部署管理台：`pnpm dlx node@22 node_modules/wrangler/bin/wrangler.js pages deploy ../admin --project-name fstudy-admin --branch main`。
 
-生产环境默认拒绝注册：`wrangler.jsonc` 不设置 `INVITE_REGISTRATION_ENABLED`。开放注册前必须获得明确批准。
+生产环境通过邀请码开放注册（`INVITE_REGISTRATION_ENABLED=true`），没有邀请码仍无法创建账户。
 
 ### 北邮 CAS（已停用）
 

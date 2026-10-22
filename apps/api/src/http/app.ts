@@ -37,6 +37,7 @@ import {
   CompletionSchema,
   CourseSchema,
   ContentReportSchema,
+  CreateTagSchema,
   FriendRequestActionSchema,
   FriendRequestSchema,
   ForumPostSchema,
@@ -63,7 +64,10 @@ const OPENAPI_DOCUMENT = {
     '/v1/auth/login': { post: { summary: '使用用户名和本系统密码登录' } },
     '/v1/auth/logout': { post: { summary: '撤销当前会话并退出登录' } },
     '/v1/me': { get: { summary: '读取个人资料' }, patch: { summary: '更新个人资料和隐私偏好' } },
-    '/v1/tags': { get: { summary: '读取受控标签（需要登录）' } },
+    '/v1/tags': {
+      get: { summary: '读取全局标签（需要登录）' },
+      post: { summary: '创建或复用全局标签（需要登录）' },
+    },
     '/v1/me/tags': { get: { summary: '读取当前用户标签' }, put: { summary: '替换当前用户标签' } },
     '/v1/courses': { get: { summary: '读取课表' }, post: { summary: '添加课程' } },
     '/v1/me/academic-settings': { get: { summary: '读取学期设置' }, put: { summary: '设置学期第一周日期' } },
@@ -352,6 +356,11 @@ export function createApp(dependencies: RuntimeDependencies) {
   });
 
   app.get('/v1/tags', async (context) => context.json({ tags: await tagService.list() }, 200));
+
+  app.post('/v1/tags', zValidator('json', CreateTagSchema), async (context) => {
+    const result = await tagService.create(context.req.valid('json'));
+    return context.json({ tag: result.tag }, result.created ? 201 : 200);
+  });
 
   app.get('/v1/me/tags', async (context) => {
     return context.json({ tags: await tagService.listUserTags(context.get('userId')) }, 200);

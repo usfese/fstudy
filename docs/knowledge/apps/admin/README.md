@@ -7,7 +7,7 @@
 | 文件 | 说明 |
 | --- | --- |
 | `index.html` | 唯一页面，加载 `/style.css` 与 `/admin.js`（模块脚本）|
-| `admin.js` | 全部逻辑（约 215 行）：登录、页面路由、渲染、事件 |
+| `admin.js` | 全部逻辑（约 310 行）：登录、页面路由、渲染、事件 |
 | `style.css` | 样式（单行压缩） |
 
 ## 运行方式
@@ -36,7 +36,8 @@ window.FSTUDY_API_URL = 'https://api.example.com';
 | `users` 用户管理 | `GET /v1/admin/users?q=`，`PATCH /v1/admin/users/:id/status` | 搜索、封禁/恢复 |
 | `content` 内容管理 | `GET /v1/admin/content`，`PATCH /v1/admin/content/:type/:id` | 隐藏、恢复、删除 |
 | `reports` 举报处理 | `GET /v1/admin/reports`，`PATCH /v1/admin/reports/:id` | 解决或驳回 |
-| `tags` 标签管理 | `GET /v1/admin/tags`，`POST /v1/admin/tags` | 新增、编辑、启停 |
+| `invites` 邀请码 | `POST /v1/admin/invites` | 生成运营邀请码；每生成一条追加一行，支持单条复制、复制全部、清空本次列表 |
+| `tags` 标签管理 | `GET /v1/admin/tags`，`POST /v1/admin/tags` | 新增、编辑、启停；用户创建的全局标签也会出现在这里 |
 | `audit` 操作审计 | `GET /v1/admin/audit` | 只读 |
 | 登录 | `POST /v1/admin/auth/login` | 获取令牌 |
 | 修改密码 | `PUT /v1/admin/auth/password` | 成功后会话被撤销，需重新登录 |
@@ -45,6 +46,7 @@ window.FSTUDY_API_URL = 'https://api.example.com';
 ## 会话与安全
 
 - 令牌存于 `sessionStorage`（键 `fstudy_admin_token`），关闭标签页即失效；用户名存于 `fstudy_admin_username`。
+- 邀请码生成记录存于 `sessionStorage`（键 `fstudy_admin_invites`），只用于本次标签页内的复制；服务端只保存邀请码哈希，关闭标签页后无法再次显示原文。
 - `request()` 遇到 401（登录接口除外）即调用 `logoutLocal()` 清理本地状态。
 - 所有动态数据经过 `esc()` 转义后再插入 HTML，防止 XSS。新增渲染逻辑时必须沿用该函数。
 - 管理员令牌有效期 8 天（服务端决定）。

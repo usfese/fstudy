@@ -84,9 +84,12 @@
 
 ### 标签
 
+标签库是**全局共享**的：系统预置标签和登录用户创建的标签都会出现在 `/v1/tags`，可用于个人资料、发现和组队。
+
 | 方法 | 路径 | 请求 | 响应 |
 | --- | --- | --- | --- |
 | GET | `/v1/tags` | 是 | `{ tags: Tag[] }`，仅 `active` 标签 |
+| POST | `/v1/tags` | 是 | `CreateTagSchema`：`name`（1–40，去首尾空格并合并连续空格）、`category` ∈ `interest`/`field`/`goal`。201 `{ tag }`；同名同分类已存在时 200 返回已有标签；同名标签已停用 409 `tag_inactive` |
 | GET | `/v1/me/tags` | — | `{ tags: UserTag[] }` |
 | PUT | `/v1/me/tags` | `UserTagsSchema`：`tags[]`（最多 18 个），每项 `{ tagId, isCore?, visible?, usedForRecommendation? }` | `{ ok: true }` |
 

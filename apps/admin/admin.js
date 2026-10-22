@@ -1,6 +1,7 @@
 const API = window.FSTUDY_API_URL || `${window.location.protocol}//${window.location.hostname}:8787`;
 const TOKEN_KEY = 'fstudy_admin_token';
 const USER_KEY = 'fstudy_admin_username';
+const INVITES_KEY = 'fstudy_admin_invites';
 const app = document.querySelector('#app');
 let token = sessionStorage.getItem(TOKEN_KEY);
 let username = sessionStorage.getItem(USER_KEY) || '';
@@ -8,6 +9,7 @@ let activePage = 'overview';
 let searchTerm = '';
 const pages = {
   overview: ['运营总览', '关键运营指标与近期情况'],
+  invites: ['邀请码', '生成并复制注册邀请码'],
   users: ['用户管理', '查找用户并管理账号状态'],
   content: ['内容管理', '管理讨论帖、公开回复与组队帖'],
   reports: ['举报处理', '查看并处理用户提交的举报'],
@@ -129,6 +131,7 @@ async function renderPage() {
   container.innerHTML = '<div class="loading">加载中…</div>';
   try {
     if (activePage === 'overview') await renderOverview(container);
+    if (activePage === 'invites') await renderInvites(container);
     if (activePage === 'users') await renderUsers(container);
     if (activePage === 'content') await renderContent(container);
     if (activePage === 'reports') await renderReports(container);
@@ -149,6 +152,99 @@ async function renderOverview(container) {
   ];
   container.innerHTML = `<div class="grid">${metrics.map(([label, value]) => `<article class="stat"><div class="stat-label">${label}</div><div class="stat-value">${Number(value).toLocaleString('zh-CN')}</div></article>`).join('')}</div>
     <section class="panel"><h2>运营控制台已就绪</h2><div class="muted" style="line-height:1.8">管理员登录与学生登录使用独立的会话表；管理写操作会记录审计日志。请通过“举报处理”建立内容反馈闭环，通过“用户管理”执行封禁或恢复。</div></section>`;
+}
+
+function loadInviteDrafts() {
+  try {
+    const value = JSON.parse(sessionStorage.getItem(INVITES_KEY) || '[]');
+    return Array.isArray(value)
+      ? value.filter((item) => item && typeof item.code === 'string')
+      : [];
+  } catch (_) {
+    return [];
+  }
+}
+
+function saveInviteDrafts(invites) {
+  sessionStorage.setItem(INVITES_KEY, JSON.stringify(invites));
+}
+
+async function copyText(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch (_) {
+    const area = document.createElement('textarea');
+    area.value = text;
+    area.setAttribute('readonly', '');
+    area.style.position = 'fixed';
+    area.style.opacity = '0';
+    document.body.appendChild(area);
+    area.select();
+    try {
+      return document.execCommand('copy');
+    } finally {
+      area.remove();
+    }
+  }
+}
+
+async function renderInvites(container) {
+  const invites = loadInviteDrafts();
+  container.innerHTML = `<section class="panel">
+    <h2>生成注册邀请码</h2>
+    <p class="muted" style="line-height:1.7;margin-top:0">运营邀请码不占用学生个人额度。邀请码只在生成时显示一次，请立即复制；关闭当前标签页后本次列表会清空。</p>
+    <div class="toolbar">
+      <button class="button" id="generate-invite">生成邀请码</button>
+      <button class="button secondary" id="copy-all-invites" ${invites.length ? '' : 'disabled'}>复制全部</button>
+      <button class="button secondary" id="clear-invites" ${invites.length ? '' : 'disabled'}>清空本次列表</button>
+    </div>
+    <div class="error" id="invite-error"></div>
+    <div class="invite-list">${invites.length ? invites.map((item, index) => `<div class="invite-line"><code>${esc(item.code)}</code><span class="muted">${esc(item.createdAt || '')}</span><button class="button secondary" data-copy="${index}">复制</button></div>`).join('') : '<div class="empty">还没有生成邀请码</div>'}</div>
+  </section>`;
+
+  document.querySelector('#generate-invite').addEventListener('click', async (event) => {
+    const button = event.currentTarget;
+    button.disabled = true;
+    document.querySelector('#invite-error').textContent = '';
+    try {
+      const result = await request('/v1/admin/invites', { method: 'POST' });
+      const next = [...loadInviteDrafts(), {
+        code: result.code,
+        createdAt: new Date().toLocaleString('zh-CN', { hour12: false }),
+      }];
+      saveInviteDrafts(next);
+      await renderPage();
+    } catch (error) {
+      const errorBox = document.querySelector('#invite-error');
+      if (errorBox) errorBox.textContent = error.message;
+      button.disabled = false;
+    }
+  });
+
+  document.querySelector('#copy-all-invites')?.addEventListener('click', async (event) => {
+    const text = invites.map((item) => item.code).join('\n');
+    if (!text) return;
+    if (await copyText(text)) {
+      event.currentTarget.textContent = '已复制';
+      setTimeout(() => renderPage(), 900);
+    }
+  });
+
+  document.querySelector('#clear-invites')?.addEventListener('click', async () => {
+    if (!confirm('清空本次生成的邀请码列表？已经复制的邀请码仍然有效。')) return;
+    saveInviteDrafts([]);
+    await renderPage();
+  });
+
+  container.querySelectorAll('[data-copy]').forEach((button) => button.addEventListener('click', async () => {
+    const item = invites[Number(button.dataset.copy)];
+    if (!item) return;
+    if (await copyText(item.code)) {
+      button.textContent = '已复制';
+      setTimeout(() => { button.textContent = '复制'; }, 1000);
+    }
+  }));
 }
 
 function table(headers, rows, empty = '暂无数据') {

@@ -94,6 +94,8 @@
 ## tags — `TagService`
 
 - `list()`：全部 `active = 1` 的标签。
+- `list()`：全局启用标签（系统预置 + 用户创建）。
+- `create(input)`：创建全局标签；名称去首尾空格并合并连续空格，同分类下用 `lower(name)` 判重，已存在则复用；已停用返回 409；ID 为 `<category>-<uuid>`。
 - `listUserTags(userId)`：用户已选标签，含 `isCore`、`visible`、`usedForRecommendation`。
 - `replaceUserTags(userId, selections)`：**全量替换**。规则：最多 18 个；不能重复；所有 `tagId` 必须存在且 `active`；通过 `batch` 先删后插。
 

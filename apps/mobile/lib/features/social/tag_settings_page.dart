@@ -14,13 +14,21 @@ class _TagSettingsPageState extends State<TagSettingsPage> {
   bool _loading = true;
   bool _saving = false;
   String? _error;
+  String _query = '';
   List<SocialTag> _available = [];
   final Map<String, SocialTag> _selected = {};
+  final TextEditingController _search = TextEditingController();
 
   @override
   void initState() {
     super.initState();
     _load();
+  }
+
+  @override
+  void dispose() {
+    _search.dispose();
+    super.dispose();
   }
 
   Future<void> _load() async {
@@ -64,6 +72,11 @@ class _TagSettingsPageState extends State<TagSettingsPage> {
   }
 
   void _toggle(SocialTag tag, bool selected) {
+    if (selected && _selected.length >= 18 && !_selected.containsKey(tag.id)) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('最多选择 18 个标签')));
+      return;
+    }
     setState(() {
       if (selected) {
         _selected[tag.id] = tag;
@@ -71,6 +84,58 @@ class _TagSettingsPageState extends State<TagSettingsPage> {
         _selected.remove(tag.id);
       }
     });
+  }
+
+  List<SocialTag> get _filteredTags {
+    final query = _query.trim().toLowerCase();
+    if (query.isEmpty) return _available;
+    return _available
+        .where((tag) => tag.name.toLowerCase().contains(query))
+        .toList();
+  }
+
+  Future<void> _openCreateTagDialog() async {
+    final input = await showDialog<({String name, String category})>(
+      context: context,
+      builder: (context) => _CreateTagDialog(initialName: _query.trim()),
+    );
+    if (input == null || !mounted) return;
+    await _createTag(input.name, input.category);
+  }
+
+  Future<void> _createTag(String name, String category) async {
+    setState(() => _saving = true);
+    try {
+      final tag = await widget.repository.createTag(
+        name: name,
+        category: category,
+      );
+      if (!mounted) return;
+      final wasSelected = _selected.containsKey(tag.id);
+      setState(() {
+        if (!_available.any((item) => item.id == tag.id)) {
+          _available = [..._available, tag];
+        }
+        if (!wasSelected && _selected.length < 18) {
+          _selected[tag.id] = tag;
+        }
+        _query = '';
+        _search.clear();
+        _error = null;
+      });
+      if (mounted) {
+        final selected = _selected.containsKey(tag.id);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(selected ? '标签已创建并选中' : '标签已创建，已达 18 个上限，未自动选中'),
+          ),
+        );
+      }
+    } on SocialFailure catch (error) {
+      if (mounted) setState(() => _error = error.message);
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
   }
 
   @override
@@ -81,10 +146,12 @@ class _TagSettingsPageState extends State<TagSettingsPage> {
         child: FilledButton.tonal(onPressed: _load, child: Text(_error!)),
       );
     }
+    final filtered = _filteredTags;
     return Center(
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 820),
         child: ListView(
+          key: const Key('tagSettingsList'),
           padding: const EdgeInsets.all(24),
           children: [
             Text(
@@ -93,22 +160,75 @@ class _TagSettingsPageState extends State<TagSettingsPage> {
                   ?.copyWith(fontWeight: FontWeight.w700),
             ),
             const SizedBox(height: 6),
-            const Text('最多选择 18 个。选中后可控制是否公开、是否参与推荐，并标记核心标签。'),
-            const SizedBox(height: 20),
-            for (final category in ['interest', 'field', 'goal'])
-              _CategorySection(
-                title: const {
-                  'interest': '兴趣',
-                  'field': '领域',
-                  'goal': '目标',
-                }[category]!,
-                tags: _available
-                    .where((tag) => tag.category == category)
-                    .toList(),
-                selected: _selected,
-                onToggle: _toggle,
-                onChanged: (tag) => setState(() => _selected[tag.id] = tag),
+            const Text('最多选择 18 个。标签全局共享，你可以创建并搜索新标签。'),
+            const SizedBox(height: 16),
+            TextField(
+              key: const Key('tagSearchField'),
+              controller: _search,
+              onChanged: (value) => setState(() => _query = value),
+              decoration: InputDecoration(
+                hintText: '搜索标签',
+                prefixIcon: const Icon(Icons.search),
+                suffixIcon: _query.isEmpty
+                    ? null
+                    : IconButton(
+                        key: const Key('clearTagSearchButton'),
+                        onPressed: () {
+                          _search.clear();
+                          setState(() => _query = '');
+                        },
+                        icon: const Icon(Icons.close),
+                      ),
               ),
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Text('已选 ${_selected.length}/18 个'),
+                const Spacer(),
+                OutlinedButton.icon(
+                  key: const Key('createTagButton'),
+                  onPressed: _saving ? null : _openCreateTagDialog,
+                  icon: const Icon(Icons.add),
+                  label: const Text('创建标签'),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            if (filtered.isEmpty)
+              Card(
+                margin: EdgeInsets.zero,
+                child: Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Column(
+                    children: [
+                      const Text('没有找到匹配的标签'),
+                      const SizedBox(height: 8),
+                      TextButton.icon(
+                        onPressed: _saving ? null : _openCreateTagDialog,
+                        icon: const Icon(Icons.add),
+                        label: Text('创建「${_query.trim()}」'),
+                      ),
+                    ],
+                  ),
+                ),
+              )
+            else
+              for (final category in const ['interest', 'field', 'goal'])
+                if (filtered.any((tag) => tag.category == category))
+                  _CategorySection(
+                    title: const {
+                      'interest': '兴趣',
+                      'field': '领域',
+                      'goal': '目标',
+                    }[category]!,
+                    tags: filtered
+                        .where((tag) => tag.category == category)
+                        .toList(),
+                    selected: _selected,
+                    onToggle: _toggle,
+                    onChanged: (tag) => setState(() => _selected[tag.id] = tag),
+                  ),
             if (_error != null)
               Text(
                 _error!,
@@ -129,6 +249,81 @@ class _TagSettingsPageState extends State<TagSettingsPage> {
       ),
     );
   }
+}
+
+class _CreateTagDialog extends StatefulWidget {
+  const _CreateTagDialog({required this.initialName});
+
+  final String initialName;
+
+  @override
+  State<_CreateTagDialog> createState() => _CreateTagDialogState();
+}
+
+class _CreateTagDialogState extends State<_CreateTagDialog> {
+  late final TextEditingController _name = TextEditingController(
+    text: widget.initialName,
+  );
+  String _category = 'interest';
+
+  @override
+  void dispose() {
+    _name.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    final name = _name.text.trim().replaceAll(RegExp(r'\s+'), ' ');
+    if (name.isEmpty) return;
+    Navigator.pop(context, (name: name, category: _category));
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+    title: const Text('创建标签'),
+    content: SingleChildScrollView(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          TextField(
+            key: const Key('newTagNameField'),
+            controller: _name,
+            autofocus: true,
+            maxLength: 40,
+            onSubmitted: (_) => _submit(),
+            decoration: const InputDecoration(
+              labelText: '标签名称',
+              hintText: '例如：校园摄影',
+            ),
+          ),
+          const SizedBox(height: 8),
+          DropdownButtonFormField<String>(
+            key: const Key('newTagCategoryField'),
+            initialValue: _category,
+            decoration: const InputDecoration(labelText: '分类'),
+            items: const [
+              DropdownMenuItem(value: 'interest', child: Text('兴趣')),
+              DropdownMenuItem(value: 'field', child: Text('领域')),
+              DropdownMenuItem(value: 'goal', child: Text('目标')),
+            ],
+            onChanged: (value) =>
+                setState(() => _category = value ?? 'interest'),
+          ),
+        ],
+      ),
+    ),
+    actions: [
+      TextButton(
+        onPressed: () => Navigator.pop(context),
+        child: const Text('取消'),
+      ),
+      FilledButton(
+        key: const Key('confirmCreateTagButton'),
+        onPressed: _submit,
+        child: const Text('创建'),
+      ),
+    ],
+  );
 }
 
 class _CategorySection extends StatelessWidget {

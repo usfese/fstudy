@@ -24,7 +24,7 @@
 ## auth
 
 ### 页面
-`AuthPage(repository, onAuthenticated, casCode?, casState?)`：登录与注册。注册需要用户名（3–20 位字母、数字或下划线）、邮箱、邀请码和本系统密码；显示名称默认等于用户名，可在个人资料中修改。学校密码与验证码输入框、北邮跳转登录按钮和 CAS 回调处理已注释停用（ADR-021、ADR-023）。`casCode` / `casState` 参数保留但不再使用。
+`AuthPage(repository, onAuthenticated, casCode?, casState?)`：登录与注册。注册需要用户名（3–20 位字母、数字或下划线）、邮箱、邀请码和本系统密码；显示名称默认等于用户名，可在个人资料中修改。学校密码与验证码输入框、北邮跳转登录按钮和 CAS 回调处理已注释停用（ADR-021、ADR-023）。`casCode` / `casState` 参数保留但不再使用。表单使用 `AutofillGroup` 与 `AutofillHints`（`username` / `email` / `password` / `newPassword`），登录或注册成功后调用 `TextInput.finishAutofillContext`，供浏览器提示保存账号密码。
 
 ### 仓库接口（`AuthRepository`）
 
@@ -84,13 +84,14 @@ API 地址：`String.fromEnvironment('API_BASE_URL')`，默认 Web `http://127.0
 - `DiscoverPage`：推荐同学卡片（`_UserCard`），展示共同标签与院系，提供按关系状态变化的操作按钮（`_RelationshipAction`）。
 - `FriendsPage`：好友列表，以及收到和发出的请求。
 - `AvailabilityPage`：选择好友、日期与周次查询共同空闲段，发起空闲邀请，处理收到的邀请。
-- `TagSettingsPage`：按兴趣、方向、目标选择标签，并设置是否核心、是否可见、是否参与推荐。
+- `TagSettingsPage`：搜索、创建全局标签，按兴趣、方向、目标分组选择，并设置是否核心、是否可见、是否参与推荐。
 
 ### 仓库（`SocialRepository`）
 
 | 方法 | 接口 |
 | --- | --- |
 | `listAvailableTags()` | `GET /v1/tags` |
+| `createTag(name, category)` | `POST /v1/tags`，创建或复用全局标签 |
 | `listMyTags()` / `replaceMyTags(tags)` | `GET`/`PUT /v1/me/tags` |
 | `discoverUsers()` | `GET /v1/discover` |
 | `sendFriendRequest(targetUserId)` | `POST /v1/friend-requests` |
@@ -104,7 +105,7 @@ API 地址：`String.fromEnvironment('API_BASE_URL')`，默认 Web `http://127.0
 
 ## projects（组队）
 
-- `ProjectsPage`：项目列表（可按标签与状态筛选）、发布项目（`_ProjectDialog`）、申请加入、作者处理申请、举报项目（`_ProjectReportDialog`）。
+- `ProjectsPage`：项目列表（可按标签与状态筛选）、发布项目（`_ProjectDialog`，内含标签搜索）、申请加入、作者处理申请、举报项目（`_ProjectReportDialog`）。
 - `ProjectRepository`：
 
 | 方法 | 接口 |

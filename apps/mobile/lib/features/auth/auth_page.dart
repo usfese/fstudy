@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 // [2026-10-14 已停用] 验证码与北邮学校密码验证相关代码已注释，保留以便日后恢复。
 // 注册现在需要邀请码与邮箱，不再验证学生身份。
@@ -120,6 +121,7 @@ class _AuthPageState extends State<AuthPage> {
               username: _username.text.trim(),
               appPassword: _appPassword.text.trim(),
             );
+      TextInput.finishAutofillContext(shouldSave: true);
       widget.onAuthenticated(session);
     } on AuthFailure catch (error) {
       if (mounted) setState(() => _error = error.message);
@@ -189,162 +191,175 @@ class _AuthPageState extends State<AuthPage> {
                   padding: const EdgeInsets.all(32),
                   child: Form(
                     key: _formKey,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        CircleAvatar(
-                          radius: 28,
-                          backgroundColor: colors.primaryContainer,
-                          child: Icon(
-                            Icons.school_rounded,
-                            color: colors.primary,
-                            size: 30,
+                    child: AutofillGroup(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          CircleAvatar(
+                            radius: 28,
+                            backgroundColor: colors.primaryContainer,
+                            child: Icon(
+                              Icons.school_rounded,
+                              color: colors.primary,
+                              size: 30,
+                            ),
                           ),
-                        ),
-                        const SizedBox(height: 18),
-                        Text(
-                          'FStudy',
-                          textAlign: TextAlign.center,
-                          style: Theme.of(context).textTheme.headlineMedium
-                              ?.copyWith(fontWeight: FontWeight.w700),
-                        ),
-                        const SizedBox(height: 6),
-                        Text(
-                          _registering ? '使用邀请码创建账户' : '登录你的课业空间',
-                          textAlign: TextAlign.center,
-                          style: TextStyle(color: colors.onSurfaceVariant),
-                        ),
-                        const SizedBox(height: 26),
-                        SegmentedButton<bool>(
-                          key: const Key('authModeSelector'),
-                          segments: const [
-                            ButtonSegment(value: false, label: Text('登录')),
-                            ButtonSegment(value: true, label: Text('注册')),
-                          ],
-                          selected: {_registering},
-                          onSelectionChanged: (value) => setState(() {
-                            _registering = value.first;
-                            _error = null;
-                          }),
-                        ),
-                        const SizedBox(height: 20),
-                        TextFormField(
-                          key: const Key('usernameField'),
-                          controller: _username,
-                          validator: (value) {
-                            if (!RegExp(r'^[A-Za-z0-9_]{3,20}$')
-                                .hasMatch(value?.trim() ?? '')) {
-                              return '请输入 3–20 位字母、数字或下划线';
-                            }
-                            return null;
-                          },
-                          autocorrect: false,
-                          textCapitalization: TextCapitalization.none,
-                          decoration: const InputDecoration(
-                            labelText: '用户名',
-                            helperText: '登录时使用，不区分大小写。',
-                            prefixIcon: Icon(Icons.person_outline),
+                          const SizedBox(height: 18),
+                          Text(
+                            'FStudy',
+                            textAlign: TextAlign.center,
+                            style: Theme.of(context).textTheme.headlineMedium
+                                ?.copyWith(fontWeight: FontWeight.w700),
                           ),
-                        ),
-                        const SizedBox(height: 14),
-                        if (_registering) ...[
+                          const SizedBox(height: 6),
+                          Text(
+                            _registering ? '使用邀请码创建账户' : '登录你的课业空间',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(color: colors.onSurfaceVariant),
+                          ),
+                          const SizedBox(height: 26),
+                          SegmentedButton<bool>(
+                            key: const Key('authModeSelector'),
+                            segments: const [
+                              ButtonSegment(value: false, label: Text('登录')),
+                              ButtonSegment(value: true, label: Text('注册')),
+                            ],
+                            selected: {_registering},
+                            onSelectionChanged: (value) => setState(() {
+                              _registering = value.first;
+                              _error = null;
+                            }),
+                          ),
+                          const SizedBox(height: 20),
                           TextFormField(
-                            key: const Key('emailField'),
-                            controller: _email,
+                            key: const Key('usernameField'),
+                            controller: _username,
                             validator: (value) {
-                              if (!RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$')
+                              if (!RegExp(r'^[A-Za-z0-9_]{3,20}$')
                                   .hasMatch(value?.trim() ?? '')) {
-                                return '请输入有效的邮箱';
+                                return '请输入 3–20 位字母、数字或下划线';
                               }
                               return null;
                             },
-                            keyboardType: TextInputType.emailAddress,
-                            decoration: const InputDecoration(
-                              labelText: '邮箱',
-                              helperText: '用于账户记录，暂不发送验证邮件。',
-                              prefixIcon: Icon(Icons.alternate_email),
-                            ),
-                          ),
-                          const SizedBox(height: 14),
-                          TextFormField(
-                            key: const Key('inviteCodeField'),
-                            controller: _inviteCode,
-                            validator: _required,
                             autocorrect: false,
-                            textCapitalization: TextCapitalization.characters,
+                            textCapitalization: TextCapitalization.none,
+                            autofillHints: const [AutofillHints.username],
+                            textInputAction: TextInputAction.next,
                             decoration: const InputDecoration(
-                              labelText: '邀请码',
-                              helperText: '每位同学每月可生成 5 个邀请码。',
-                              prefixIcon: Icon(
-                                Icons.confirmation_number_outlined,
-                              ),
+                              labelText: '用户名',
+                              helperText: '登录时使用，不区分大小写。',
+                              prefixIcon: Icon(Icons.person_outline),
                             ),
                           ),
                           const SizedBox(height: 14),
-                        ],
-                        // [2026-10-14 已停用] 学校密码与验证码输入框。
-                        // if (_registering) ...[
-                        //   TextFormField(key: const Key('schoolPasswordField'), controller: _schoolPassword, ...),
-                        //   if (_casPasswordChallenge?.captchaImage != null) Image.memory(...),
-                        //   TextFormField(key: const Key('casCaptchaField'), controller: _captcha, ...),
-                        // ],
-                        TextFormField(
-                          key: const Key('appPasswordField'),
-                          controller: _appPassword,
-                          validator: (value) {
-                            if (value == null || value.isEmpty) {
-                              return '请填写密码';
-                            }
-                            if (_registering && value.length < 10) {
-                              return '本系统密码至少 10 位';
-                            }
-                            return null;
-                          },
-                          obscureText: _obscurePassword,
-                          onFieldSubmitted: (_) => _submit(),
-                          decoration: InputDecoration(
-                            labelText: _registering ? '设置 FStudy 密码' : '本系统密码',
-                            prefixIcon: const Icon(Icons.lock_outline),
-                            suffixIcon: IconButton(
-                              onPressed: () => setState(
-                                () => _obscurePassword = !_obscurePassword,
+                          if (_registering) ...[
+                            TextFormField(
+                              key: const Key('emailField'),
+                              controller: _email,
+                              validator: (value) {
+                                if (!RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$')
+                                    .hasMatch(value?.trim() ?? '')) {
+                                  return '请输入有效的邮箱';
+                                }
+                                return null;
+                              },
+                              keyboardType: TextInputType.emailAddress,
+                              autofillHints: const [AutofillHints.email],
+                              textInputAction: TextInputAction.next,
+                              decoration: const InputDecoration(
+                                labelText: '邮箱',
+                                helperText: '用于账户记录，暂不发送验证邮件。',
+                                prefixIcon: Icon(Icons.alternate_email),
                               ),
-                              icon: Icon(
-                                _obscurePassword
-                                    ? Icons.visibility_outlined
-                                    : Icons.visibility_off_outlined,
+                            ),
+                            const SizedBox(height: 14),
+                            TextFormField(
+                              key: const Key('inviteCodeField'),
+                              controller: _inviteCode,
+                              validator: _required,
+                              autocorrect: false,
+                              textCapitalization: TextCapitalization.characters,
+                              textInputAction: TextInputAction.next,
+                              decoration: const InputDecoration(
+                                labelText: '邀请码',
+                                helperText: '每位同学每月可生成 5 个邀请码。',
+                                prefixIcon: Icon(
+                                  Icons.confirmation_number_outlined,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 14),
+                          ],
+                          // [2026-10-14 已停用] 学校密码与验证码输入框。
+                          // if (_registering) ...[
+                          //   TextFormField(key: const Key('schoolPasswordField'), controller: _schoolPassword, ...),
+                          //   if (_casPasswordChallenge?.captchaImage != null) Image.memory(...),
+                          //   TextFormField(key: const Key('casCaptchaField'), controller: _captcha, ...),
+                          // ],
+                          TextFormField(
+                            key: const Key('appPasswordField'),
+                            controller: _appPassword,
+                            validator: (value) {
+                              if (value == null || value.isEmpty) {
+                                return '请填写密码';
+                              }
+                              if (_registering && value.length < 10) {
+                                return '本系统密码至少 10 位';
+                              }
+                              return null;
+                            },
+                            obscureText: _obscurePassword,
+                            autofillHints: _registering
+                                ? const [AutofillHints.newPassword]
+                                : const [AutofillHints.password],
+                            textInputAction: TextInputAction.done,
+                            onFieldSubmitted: (_) => _submit(),
+                            decoration: InputDecoration(
+                              labelText: _registering
+                                  ? '设置 FStudy 密码'
+                                  : '本系统密码',
+                              prefixIcon: const Icon(Icons.lock_outline),
+                              suffixIcon: IconButton(
+                                onPressed: () => setState(
+                                  () => _obscurePassword = !_obscurePassword,
+                                ),
+                                icon: Icon(
+                                  _obscurePassword
+                                      ? Icons.visibility_outlined
+                                      : Icons.visibility_off_outlined,
+                                ),
                               ),
                             ),
                           ),
-                        ),
-                        if (_error != null) ...[
-                          const SizedBox(height: 14),
-                          Text(
-                            _error!,
-                            textAlign: TextAlign.center,
-                            style: TextStyle(color: colors.error),
+                          if (_error != null) ...[
+                            const SizedBox(height: 14),
+                            Text(
+                              _error!,
+                              textAlign: TextAlign.center,
+                              style: TextStyle(color: colors.error),
+                            ),
+                          ],
+                          const SizedBox(height: 20),
+                          FilledButton(
+                            key: const Key('submitAuthButton'),
+                            onPressed: _submitting ? null : _submit,
+                            style: FilledButton.styleFrom(
+                              minimumSize: const Size.fromHeight(50),
+                            ),
+                            child: _submitting
+                                ? SizedBox.square(
+                                    dimension: 22,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: colors.onPrimary,
+                                    ),
+                                  )
+                                : Text(_registering ? '注册' : '登录'),
                           ),
+                          // [2026-10-14 已停用] 北邮统一身份认证跳转登录按钮。
+                          // OutlinedButton.icon(key: Key('buptCasLoginButton'), onPressed: _startBrowserCas, ...),
                         ],
-                        const SizedBox(height: 20),
-                        FilledButton(
-                          key: const Key('submitAuthButton'),
-                          onPressed: _submitting ? null : _submit,
-                          style: FilledButton.styleFrom(
-                            minimumSize: const Size.fromHeight(50),
-                          ),
-                          child: _submitting
-                              ? SizedBox.square(
-                                  dimension: 22,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                    color: colors.onPrimary,
-                                  ),
-                                )
-                              : Text(_registering ? '注册' : '登录'),
-                        ),
-                        // [2026-10-14 已停用] 北邮统一身份认证跳转登录按钮。
-                        // OutlinedButton.icon(key: Key('buptCasLoginButton'), onPressed: _startBrowserCas, ...),
-                      ],
+                      ),
                     ),
                   ),
                 ),

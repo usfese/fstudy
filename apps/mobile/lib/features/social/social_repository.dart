@@ -192,6 +192,7 @@ class AvailabilityInvite {
 abstract interface class SocialRepository {
   Future<List<SocialTag>> listAvailableTags();
   Future<List<SocialTag>> listMyTags();
+  Future<SocialTag> createTag({required String name, required String category});
   Future<void> replaceMyTags(List<SocialTag> tags);
   Future<List<DiscoveredUser>> discoverUsers();
   Future<void> sendFriendRequest(String targetUserId);
@@ -241,6 +242,20 @@ class DioSocialRepository implements SocialRepository {
   @override
   Future<List<SocialTag>> listMyTags() async =>
       _tags(await _get('/v1/me/tags'));
+
+  @override
+  Future<SocialTag> createTag({
+    required String name,
+    required String category,
+  }) async {
+    final data = await _request(
+      () => _dio.post<Map<String, dynamic>>(
+        '/v1/tags',
+        data: {'name': name, 'category': category},
+      ),
+    );
+    return SocialTag.fromJson(data['tag'] as Map<String, dynamic>);
+  }
 
   @override
   Future<void> replaceMyTags(List<SocialTag> tags) async {
