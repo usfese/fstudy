@@ -4,7 +4,7 @@ SQL 迁移为前向迁移，编号递增。**已部署（远程 D1）的迁移�
 
 - 远程（预发/生产）：`pnpm db:migrate:remote`（即 `wrangler d1 migrations apply fstudy --remote`）。
 - 本地 Node：启动时由 `entrypoints/node.ts` 按“标志表或索引是否存在”自动执行（见下方“迁移历史”的说明）。
-- 预发远程历史已到 `0013_cas_challenge_attempts.sql`（2026-10-14 核对）。`0014` 尚未在远程执行，需要明确批准后再运行 `pnpm db:migrate:remote`。**不要重置预发数据库**。
+- 预发与生产远程历史均已到 `0015_usernames.sql`（2026-10-22）。预发 D1 为 `fstudy-staging`，生产 D1 为 `fstudy`（`a0fb31d4-6d34-42db-9895-daf724d8bd25`）。**不要重置远程数据库**。
 
 ## 迁移历史
 
@@ -23,8 +23,8 @@ SQL 迁移为前向迁移，编号递增。**已部署（远程 D1）的迁移�
 | 0011 | `0011_cas_browser_login.sql` | CAS 跳转登录的 state 与一次性 code（入口已关闭） | `cas_login_states` |
 | 0012 | `0012_cas_password_challenges.sql` | 验证码挑战表（含 `attempt_count`；流程已停用，表保留） | `cas_password_challenges` |
 | 0013 | `0013_cas_challenge_attempts.sql` | 仅创建 `(student_id_hash, attempt_count, expires_at)` 索引 | 检测索引 `cas_password_challenges_attempts_idx` 缺失 |
-| 0014 | `0014_invites_and_email.sql` | 邀请码 `invite_codes`、用户邮箱 `user_emails`（ADR-021）。预发已执行；生产未执行 | `invite_codes` |
-| 0015 | `0015_usernames.sql` | 给 `users` 增加 `username` 并回填旧账户，建立唯一索引（ADR-023）。**尚未在远程执行** | `users.username` |
+| 0014 | `0014_invites_and_email.sql` | 邀请码 `invite_codes`、用户邮箱 `user_emails`（ADR-021）。预发与生产均已执行 | `invite_codes` |
+| 0015 | `0015_usernames.sql` | 给 `users` 增加 `username` 并回填旧账户，建立唯一索引（ADR-023）。预发与生产均已执行（2026-10-22） | `users.username` |
 
 ### 迁移历史的注意事项
 

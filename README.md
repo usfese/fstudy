@@ -106,6 +106,22 @@ GitHub Actions 在推送到 `main`、Pull Request 和手动触发时执行 API �
 
 本地 SQLite 开发入口会自动应用 `0001`–`0015` 迁移；Cloudflare D1 生产部署需显式执行 `pnpm db:migrate:remote`。预发迁移和部署状态见 `docs/knowledge/apps/api/migrations/README.md` 与 `AGENT.md`。
 
+## 生产环境（2026-10-22 已部署）
+
+| 用途 | 地址 |
+| --- | --- |
+| 学生 Web | `https://fstudy-web.a07450865.workers.dev` |
+| API | `https://fstudy-api.a07450865.workers.dev` |
+| 管理控制台 | `https://fstudy-admin.pages.dev` |
+| 预发 Web | `https://fstudy-student-staging.pages.dev` |
+| 预发 API | `https://fstudy-api-staging.a07450865.workers.dev` |
+
+- 生产 D1：`fstudy`（`a0fb31d4-6d34-42db-9895-daf724d8bd25`），迁移 `0001`–`0015` 已执行。
+- 注册仍需邀请码；`INVITE_REGISTRATION_ENABLED=true`。
+- 生产管理员账号为 `operator`，初始密码保存在仓库外的 `~/.fstudy/production-admin.txt`（权限 `0600`）。首次登录后请立即改密码。
+- 学生 Web 使用 Workers 静态资源（`apps/mobile/wrangler.jsonc`，SPA 回退）。`fstudy-student.pages.dev` 的 Pages 直传在该账号持续卡在 `upsert-hashes`，**该地址未使用**。
+- 当前 Wrangler 在 Node 26 上会对部分 Cloudflare API 挂起；部署时使用 Node 22：`pnpm dlx node@22 node_modules/wrangler/bin/wrangler.js ...`。
+
 ## Android 打包与签名
 
 签名材料**不要提交到 Git**。`apps/mobile/android/key.properties`、`*.jks`、`*.keystore` 已在 `.gitignore` 中。
@@ -114,7 +130,10 @@ GitHub Actions 在推送到 `main`、Pull Request 和手动触发时执行 API �
 
 ```bash
 cd apps/mobile
-keytool -genkeypair -v   -keystore android/app/upload-keystore.jks   -keyalg RSA -keysize 2048 -validity 10000   -alias fstudy
+keytool -genkeypair -v \
+  -keystore android/app/upload-keystore.jks \
+  -keyalg RSA -keysize 2048 -validity 10000 \
+  -alias fstudy
 cp android/key.properties.example android/key.properties
 # 编辑 android/key.properties，填入真实密码与 storeFile=upload-keystore.jks
 ```
@@ -122,7 +141,8 @@ cp android/key.properties.example android/key.properties
 构建 Release APK（必须指定 API 地址，否则 Android 会回退到模拟器地址 `http://10.0.2.2:8787`）：
 
 ```bash
-flutter build apk --release   --dart-define=API_BASE_URL=https://fstudy-api-staging.a07450865.workers.dev
+flutter build apk --release \
+  --dart-define=API_BASE_URL=https://fstudy-api.a07450865.workers.dev
 ```
 
 产物：`apps/mobile/build/app/outputs/flutter-apk/app-release.apk`。
@@ -131,9 +151,9 @@ flutter build apk --release   --dart-define=API_BASE_URL=https://fstudy-api-stag
 
 ```bash
 flutter build apk --release --split-per-abi \
-  --dart-define=API_BASE_URL=https://fstudy-api-staging.a07450865.workers.dev
+  --dart-define=API_BASE_URL=https://fstudy-api.a07450865.workers.dev
 flutter build appbundle --release \
-  --dart-define=API_BASE_URL=https://fstudy-api-staging.a07450865.workers.dev
+  --dart-define=API_BASE_URL=https://fstudy-api.a07450865.workers.dev
 ```
 
 没有 `key.properties` 时构建会自动回退到 debug 签名，仅用于本地 `flutter run --release`，**不能发布**。主 Manifest 已声明 `INTERNET` 权限，Release 构建可以联网。
@@ -157,16 +177,15 @@ git push -u origin main
 
 CI 会执行 API 检查/测试/构建、知识库校验、管理台语法检查，以及 Flutter 格式检查、分析、测试和 Web Release 构建。Cloudflare 部署凭据不要写进仓库，应放在 GitHub Actions Secrets（当前工作流不自动部署）。
 
-## 生产发布检查表
+## 生产维护检查表
 
-以下步骤尚未执行，生产环境仍使用 `apps/api/wrangler.jsonc` 中的占位配置：
-
-1. 创建生产 D1，填写 `database_id`。
-2. 写入 secrets：`STUDENT_ID_PEPPER`（至少 32 字符；仅历史 CAS 兼容使用）、`ADMIN_BOOTSTRAP_USERNAME`、`ADMIN_BOOTSTRAP_PASSWORD`。
-3. 设置 `ALLOWED_ORIGINS`；需要开放注册时显式设置 `INVITE_REGISTRATION_ENABLED: "true"`。
-4. 执行 `pnpm db:migrate:remote`（会应用 `0001`–`0015`）。
-5. 部署 API：`pnpm --filter @fstudy/api deploy`。
-6. 构建 Web 并部署到生产 Pages，配置 SPA 路由回退到 `index.html`。
-7. 用真实 keystore 构建并签名 Android APK。
-8. 验证健康检查、注册、登录、邀请码和个人资料流程。
-
+- [x] 创建生产 D1 `fstudy` 并写入 `database_id`
+- [x] 写入 secrets：`STUDENT_ID_PEPPER`、`ADMIN_BOOTSTRAP_USERNAME`、`ADMIN_BOOTSTRAP_PASSWORD`
+- [x] 设置 `ALLOWED_ORIGINS` 与 `INVITE_REGISTRATION_ENABLED`
+- [x] 执行生产迁移 `0001`–`0015`
+- [x] 部署 API Worker `fstudy-api`
+- [x] 构建并部署学生 Web Worker `fstudy-web`
+- [x] 部署管理控制台 `fstudy-admin`
+- [ ] 首次登录管理台后修改 `operator` 密码
+- [ ] 用真实 keystore 构建并签名 Android Release APK，离线备份 keystore 与密码
+- [ ] 定期备份生产 D1

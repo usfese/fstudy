@@ -11,6 +11,7 @@ apps/mobile/
 ├── web/                 Web 入口与 PWA 资源（手写，需要关注）
 ├── android/             Android 平台工程（生成 + 少量配置，暂不构建）
 ├── ios/                 iOS 平台工程（保留结构，不构建）
+├── wrangler.jsonc       生产 Web 的 Workers 静态资源配置（SPA 回退）
 ├── analysis_options.yaml  引入 flutter_lints，排除 build/android/ios/web
 ├── pubspec.yaml
 ├── README.md            Flutter 默认模板，内容未更新（见下）
@@ -54,7 +55,7 @@ flutter run -d web-server --dart-define=API_BASE_URL=http://127.0.0.1:8787
 
 默认值：Web 为 `http://127.0.0.1:8787`，Android 模拟器为 `http://10.0.2.2:8787`。
 
-Web 使用 path URL 策略（`usePathUrlStrategy()`），生产静态托管必须把未知路径重写到 `index.html`。
+Web 使用 path URL 策略（`usePathUrlStrategy()`），生产静态托管必须把未知路径重写到 `index.html`。生产 Web 使用 Workers 静态资源部署：`wrangler.jsonc` 设置 `assets.directory=./build/web` 与 `not_found_handling=single-page-application`，命令见根 `README.md` 与 `AGENT.md`。早先的 `fstudy-student` Pages 直传在该账号持续卡在 `upsert-hashes`，因此改用 Worker `fstudy-web`。
 
 ## 验证门槛
 

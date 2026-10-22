@@ -61,7 +61,7 @@ apps/api/
 
 ## 部署配置
 
-- `wrangler.jsonc`（生产）：`name: fstudy-api`，`database_id` 仍是占位符 `REPLACE_WITH_D1_DATABASE_ID`，`ALLOWED_ORIGINS` 为占位符，不设置 `INVITE_REGISTRATION_ENABLED`（注册关闭）。**未部署**。
+- `wrangler.jsonc`（生产）：`name: fstudy-api`，D1 为 `fstudy`（`a0fb31d4-6d34-42db-9895-daf724d8bd25`），`ALLOWED_ORIGINS=https://fstudy-web.a07450865.workers.dev,https://fstudy-admin.pages.dev`，`INVITE_REGISTRATION_ENABLED=true`（注册仍需邀请码），`CAS_LOGIN_ENABLED=false`。已部署到 `https://fstudy-api.a07450865.workers.dev`（2026-10-22）。
 - `wrangler.staging.jsonc`（预发）：`name: fstudy-api-staging`，`workers_dev: true`，`INVITE_REGISTRATION_ENABLED: true`，`CAS_LOGIN_ENABLED: false`；`AUTH_MODE` 与学校验证开关已注释。D1 库 `fstudy-staging`，允许来源 `https://fstudy-student-staging.pages.dev`。
 - 两份配置共用 `main: src/entrypoints/worker.ts` 与 `migrations_dir: migrations`。
 - 不要提交 `.dev.vars`、`.env`、任何 secret 值。

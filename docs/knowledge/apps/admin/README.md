@@ -20,13 +20,13 @@ pnpm admin:dev
 
 访问 `http://127.0.0.1:8081`。API 默认地址为 `http://<当前主机>:8787`。
 
-部署时，若管理前端与 API 不同源，需在 `index.html` 中、模块脚本之前设置：
+部署时，若管理前端与 API 不同源，复制 `config.example.js` 为 `config.js`（已在 `.gitignore` 中）并设置：
 
-```html
-<script>window.FSTUDY_API_URL = 'https://api.example.com';</script>
+```js
+window.FSTUDY_API_URL = 'https://api.example.com';
 ```
 
-并在 API 的 `ALLOWED_ORIGINS` 中加入管理台域名。**当前 `index.html` 没有设置该变量**，仅在本地开发使用默认值。
+`index.html` 会在模块脚本之前加载 `/config.js`；文件不存在时回退到本地默认地址。同时需在 API 的 `ALLOWED_ORIGINS` 中加入管理台域名。
 
 ## 与 API 的交互
 

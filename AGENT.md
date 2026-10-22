@@ -263,16 +263,28 @@ When a test or build fails, identify the actual root cause before changing code.
 
 The intended production backend is Cloudflare Workers + D1 using the same backend business code.
 
-Before deployment:
+Production was deployed on 2026-10-22:
 
-1. Create the production D1 database and replace `REPLACE_WITH_D1_DATABASE_ID` in `apps/api/wrangler.jsonc`.
-2. Store secrets with Wrangler: `STUDENT_ID_PEPPER` (legacy CAS only), `ADMIN_BOOTSTRAP_USERNAME`, `ADMIN_BOOTSTRAP_PASSWORD`.
-3. Set `ALLOWED_ORIGINS` and `INVITE_REGISTRATION_ENABLED` in `wrangler.jsonc` before deploying (registration is closed unless `INVITE_REGISTRATION_ENABLED` is `"true"`).
-4. Apply remote migrations (`0001`–`0015`) with explicit approval.
-5. Configure Web SPA route fallback to `index.html`.
-6. Build the Android release APK with a real keystore and `--dart-define=API_BASE_URL=<production API>`.
+- API: `https://fstudy-api.a07450865.workers.dev` (Worker `fstudy-api`, D1 `fstudy`).
+- Student Web: `https://fstudy-web.a07450865.workers.dev` (Workers static assets, SPA fallback).
+- Admin console: `https://fstudy-admin.pages.dev` (Pages, `config.js` points to the production API).
+- Migrations `0001`–`0015` applied to both staging and production.
+- `INVITE_REGISTRATION_ENABLED=true`; every registration still needs an invite code.
+- Production admin credentials are stored outside the repository at `~/.fstudy/production-admin.txt` (mode 0600). Change the bootstrap password after first login.
+- The `fstudy-student` Pages project exists but is unused: direct Pages uploads repeatedly failed at `upsert-hashes`. Deploy the student Web with `apps/mobile/wrangler.jsonc` instead.
 
-Never deploy with the development pepper, placeholder D1 ID, or debug Android signing.
+Rebuild/redeploy steps (use Node 22 for Wrangler; Node 26 hangs on some Cloudflare API calls):
+
+```bash
+cd apps/api
+pnpm dlx node@22 node_modules/wrangler/bin/wrangler.js deploy
+cd ../mobile
+flutter build web --release --dart-define=API_BASE_URL=https://fstudy-api.a07450865.workers.dev
+cd ../api
+pnpm dlx node@22 node_modules/wrangler/bin/wrangler.js deploy --config ../mobile/wrangler.jsonc
+```
+
+Never deploy with the development pepper, placeholder D1 ID, debug Android signing, or without `ALLOWED_ORIGINS` covering the deployed Web origin.
 
 ## Handoff: username accounts and release prep (2026-10-22)
 

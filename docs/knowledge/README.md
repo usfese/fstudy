@@ -50,16 +50,17 @@
 └──────┬──────────────────────────────────┬──────────┘
        │ node:sqlite (本地 fstudy.sqlite)  │ Cloudflare D1 (生产/预发)
        ▼                                  ▼
-  migrations/*.sql（前向迁移，编号 0001–0013）
+  migrations/*.sql（前向迁移，编号 0001–0015）
 ```
 
 请求链路：`entrypoint` 组装依赖 → `createApp(dependencies)` 注册全局中间件（安全头、CORS、请求体大小、Content-Type）→ 路由层用 Zod 校验请求 → 调用 `modules/*` 服务 → 通过 `SqlDatabase` 访问数据库。统一错误格式为 `{ "error": { "code", "message" } }`，由 `DomainError` 抛出。
 
-## 状态说明（2026-10-14）
+## 状态说明（2026-10-22）
 
-- 当前工作区相对最后一次提交（`8fa542a`）约有 30 个文件被修改，另有未跟踪的 `0010`–`0013` 迁移、`modules/notifications/`、`features/notifications/` 与 `test/student-verifier.test.ts`。这些内容在本知识库中按工作区现状描述。
-- 身份认证的北邮 CAS 验证码流程**尚未可用**（预发环境 `captchaImage` 为 null，注册开关关闭）。生产环境 `AUTH_MODE=disabled`，注册关闭。详见 [apps/api/src/adapters](./apps/api/src/adapters/README.md)。
-- 本地开发学生验证器 `DevelopmentStudentVerifier` 只能在 `AUTH_MODE=dev` 下使用，固定密码 `dev-password`。
+- 账户体系已改为用户名（ADR-023）：用户名 3–20 位 `[A-Za-z0-9_]`，统一小写存储，登录不区分大小写；`displayName` 仅用于展示。旧账户由 `0015` 回填为 `user_<id8>`。
+- 注册仍需邀请码（`INVITE_REGISTRATION_ENABLED=true`）；邮箱记录但不验证，不做学校验证、验证码或学号校验。
+- 北邮 CAS 仅保留给历史 `student_identities` 行，`CAS_LOGIN_ENABLED=false`，且不能创建新账户。
+- 预发与生产均已应用 `0001`–`0015`；生产地址与部署方式见根 `README.md`。
 
 ## 维护约定
 

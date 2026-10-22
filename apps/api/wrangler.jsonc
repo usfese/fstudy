@@ -3,15 +3,18 @@
   "name": "fstudy-api",
   "main": "src/entrypoints/worker.ts",
   "compatibility_date": "2026-10-01",
+  "workers_dev": true,
+  "preview_urls": false,
   "vars": {
-    "AUTH_MODE": "disabled",
-    "ALLOWED_ORIGINS": "https://REPLACE_WITH_WEB_ORIGIN"
+    "INVITE_REGISTRATION_ENABLED": "true",
+    "CAS_LOGIN_ENABLED": "false",
+    "ALLOWED_ORIGINS": "https://fstudy-web.a07450865.workers.dev,https://fstudy-admin.pages.dev"
   },
   "d1_databases": [
     {
       "binding": "DB",
       "database_name": "fstudy",
-      "database_id": "REPLACE_WITH_D1_DATABASE_ID",
+      "database_id": "a0fb31d4-6d34-42db-9895-daf724d8bd25",
       "migrations_dir": "migrations"
     }
   ]
