@@ -67,6 +67,7 @@ CAS 回调参数（`cas_code` / `cas_state`）的路由解析仍然保留，但 
 | `/community` | `CommunityPage` | 社区，`tab` 查询参数选择页签（分支 6） |
 | `/profile` | `ProfilePage` | 我的（分支 7） |
 | `/profile/tags` | `TagSettingsPage` | 子路由 |
+| `/profile/about` | `AboutPage` | 子路由，项目介绍与 GitHub 仓库链接 |
 | `/projects` | 重定向到 `/community?tab=teams` | 旧地址兼容 |
 
 主导航由 `StatefulShellRoute.indexedStack` 承载，共 8 个分支，标签依次为：首页、课表、地图、作业、安排、发现、社区、我的。

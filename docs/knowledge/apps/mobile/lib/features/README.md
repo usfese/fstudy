@@ -8,6 +8,7 @@
 
 | 目录 | 页面 | 仓库 | 调用的接口 |
 | --- | --- | --- | --- |
+| `about/` | `about_page.dart`（`AboutPage`） | 无（本地常量） | 无，用 `url_launcher` 打开 GitHub 仓库 |
 | `auth/` | `auth_page.dart`（`AuthPage`） | `auth_repository.dart`（`AuthRepository` / `DioAuthRepository`） | 认证相关，见下 |
 | `home/` | `home_page.dart`（`HomePage`） | 无 | 无，提供课表与作业入口卡片 |
 | `academic/` | `courses_page.dart`、`assignments_page.dart`、`class_periods.dart`、`recent_inputs.dart` | `academic_repository.dart` | `/v1/me/academic-settings`、`/v1/courses`、`/v1/courses/:id`、`/v1/assignments`、`/v1/assignments/:id` |
@@ -18,6 +19,13 @@
 | `community/` | `community_page.dart`（含 `ForumPage` 与各对话框） | `forum_repository.dart` | `/v1/forum/posts`、`/v1/forum/posts/:id`、`/v1/forum/posts/:id/replies`、`/v1/reports` |
 | `notifications/` | `notifications_page.dart` | `notification_repository.dart` | `/v1/notifications`、`/v1/notifications/read` |
 | `map/` | `campus_map_page.dart` | 无（本地数据） | 无，用 `url_launcher` 打开外部链接 |
+
+---
+
+## about（关于）
+
+- `AboutPage`：中文项目介绍、账户与隐私说明、技术栈说明，以及 GitHub 仓库入口（`fstudyRepositoryUrl`）。入口位于“我的”页的“关于 FStudy”卡片（key `aboutProjectButton`），路由为 `/profile/about`。
+- 使用 `url_launcher` 在外部浏览器打开仓库；打开失败时显示提示。页面不调用后端。
 
 ---
 
@@ -158,7 +166,7 @@ API 地址：`String.fromEnvironment('API_BASE_URL')`，默认 Web `http://127.0
 
 ## 测试覆盖
 
-`apps/mobile/test/widget_test.dart` 包含 40 个组件/行为测试，`apps/mobile/test/class_periods_test.dart` 包含 4 个固定节次与短期输入记忆单元测试，`apps/mobile/test/auth_repository_test.dart` 包含 6 个会话持久化单元测试。测试使用假仓库或假 Dio 适配器，不发起真实网络请求。测试名称覆盖了以下流程：
+`apps/mobile/test/widget_test.dart` 包含 41 个组件/行为测试，`apps/mobile/test/class_periods_test.dart` 包含 4 个固定节次与短期输入记忆单元测试，`apps/mobile/test/auth_repository_test.dart` 包含 6 个会话持久化单元测试。测试使用假仓库或假 Dio 适配器，不发起真实网络请求。测试名称覆盖了以下流程：
 
 - 未登录时显示登录页，退出登录后返回登录页
 - 深色模式设置、通知铃铛打开收件箱并标记已读
@@ -166,7 +174,7 @@ API 地址：`String.fromEnvironment('API_BASE_URL')`，默认 Web `http://127.0
 - 课程、作业、安排的编辑与删除；清空课表需输入确认词
 - 固定节次多选、连续节次合并、周视图按时间排序
 - 课表周视图按单双周过滤、设置学期起始日
-- 资料与隐私设置保存、标签保存
+- 资料与隐私设置保存、标签保存；从“我的”打开关于页并显示 GitHub 仓库链接
 - 发现页展示、发送并接受好友请求、共同空闲查询与邀请接受
 - 项目发布、申请、项目负责人接受申请
 - 论坛发帖、公开回复、举报帖子；讨论区不再显示私人联系方式提示

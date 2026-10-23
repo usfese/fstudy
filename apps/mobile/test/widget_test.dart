@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fstudy/app.dart';
+import 'package:fstudy/features/about/about_page.dart';
 import 'package:fstudy/features/auth/auth_repository.dart';
 import 'package:fstudy/features/academic/academic_repository.dart';
 import 'package:fstudy/features/academic/recent_inputs.dart';
@@ -863,6 +864,32 @@ void main() {
       tester.widget<MaterialApp>(find.byType(MaterialApp).last).themeMode,
       ThemeMode.dark,
     );
+  });
+
+  testWidgets('about page introduces the project and links to GitHub', (
+    tester,
+  ) async {
+    await tester.pumpWidget(testApp(FakeAcademicRepository()));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('我的'));
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('aboutProjectButton')),
+      300,
+      scrollable: find.byType(Scrollable).last,
+    );
+    await tester.tap(find.byKey(const Key('aboutProjectButton')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('aboutPage')), findsOneWidget);
+    expect(find.text('关于 FStudy'), findsOneWidget);
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('githubRepositoryTile')),
+      300,
+      scrollable: find.byType(Scrollable).last,
+    );
+    expect(find.text(fstudyRepositoryUrl), findsOneWidget);
+    expect(find.byKey(const Key('githubRepositoryTile')), findsOneWidget);
   });
 
   testWidgets('notification bell opens inbox and marks notifications read', (

@@ -216,6 +216,18 @@ class _ProfilePageState extends State<ProfilePage> {
                   ),
                   const SizedBox(height: 32),
                   _InviteCard(repository: widget.repository),
+                  const SizedBox(height: 12),
+                  Card(
+                    margin: EdgeInsets.zero,
+                    child: ListTile(
+                      key: const Key('aboutProjectButton'),
+                      leading: const Icon(Icons.info_outline),
+                      title: const Text('关于 FStudy'),
+                      subtitle: const Text('项目介绍与 GitHub 仓库'),
+                      trailing: const Icon(Icons.chevron_right),
+                      onTap: () => context.go('/profile/about'),
+                    ),
+                  ),
                   const SizedBox(height: 48),
                   const Divider(),
                   const SizedBox(height: 16),

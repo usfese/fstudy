@@ -115,7 +115,7 @@ After a change, update the affected knowledge doc in the same change, and record
 - Construct production Dio repositories at the app composition boundary.
 - Inject fake repositories in widget tests; tests must not make real network requests.
 - Use `go_router` for top-level navigation and browser URLs.
-- Current top-level routes are `/login`, `/notifications`, and a shell with branches `/`, `/schedule`, `/map`, `/assignments`, `/plans`, `/discover` (`friends`, `availability`), `/community`, `/profile` (`tags`). `/projects` redirects to `/community?tab=teams`. Details: `docs/knowledge/apps/mobile/lib/README.md`.
+- Current top-level routes are `/login`, `/notifications`, and a shell with branches `/`, `/schedule`, `/map`, `/assignments`, `/plans`, `/discover` (`friends`, `availability`), `/community`, `/profile` (`tags`, `about`). `/projects` redirects to `/community?tab=teams`. Details: `docs/knowledge/apps/mobile/lib/README.md`.
 - Preserve direct URL loading, browser back/forward behavior, and auth redirects.
 - Web uses path URL strategy. Production static hosting must rewrite unknown application paths to `index.html`.
 - API base URL is configured with `--dart-define=API_BASE_URL=...`.

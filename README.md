@@ -1,196 +1,192 @@
 # FStudy
 
-面向北京邮电大学学生的课业与轻社交应用。当前仓库包含首个可运行的后端纵向切片：
+面向北京邮电大学学生的课业与轻社交应用。FStudy 把课表、作业、自定义安排、校园地图、同学发现、讨论区与组队整合在一起，帮助学生更清楚地安排学习，也更容易找到志同道合的伙伴。
 
-- Hono API，同一份业务代码运行于 Node.js 和 Cloudflare Workers
-- 本地 `node:sqlite` 与生产 Cloudflare D1
-- 用户名 + 邀请码注册（每人每月可生成 5 个邀请码）与邮箱记录；不验证学生身份（ADR-021）
-- 注册、登录、个人资料、全局标签（用户可创建与搜索）、手动课表和待交作业
-- 学生会话保留 30 天；Web 端登录令牌存于本地安全存储，产品更新/重新部署不会清除登录状态（仅服务端明确返回 401 时清除）
-- 管理控制台：邀请码生成与复制、用户/内容/举报/标签管理、操作审计
-- OpenAPI 文档端点
+- 源码仓库：[github.com/usfese/fstudy](https://github.com/usfese/fstudy)
+- 学生 Web：[fstudy-web.a07450865.workers.dev](https://fstudy-web.a07450865.workers.dev)
+- API：[fstudy-api.a07450865.workers.dev](https://fstudy-api.a07450865.workers.dev)
+- 管理控制台：[fstudy-admin.pages.dev](https://fstudy-admin.pages.dev)
 
-## 本地启动
+> 当前迭代以 Web/PWA 为主要目标。Flutter 客户端同时保留 Android 工程，iOS 工程结构保留但暂不构建。
 
-项目知识库位于 `docs/knowledge/`，修改代码前后请参考并同步更新（见 `AGENT.md` 的 Knowledge Base Protocol）。运行 `pnpm knowledge:check` 校验。
+## 功能
 
-需要 Node.js 22+ 与 pnpm。
+- **邀请制账户**：用户名 + 密码登录，注册需要邀请码；邮箱会被记录但不验证，也不对外展示。不验证学生身份，不索取学校密码。
+- **课表管理**：按固定 14 节作息选择上课时间，支持单双周、多时间段、学期起始日、周视图，以及课程编辑、删除和清空。
+- **作业与安排**：记录作业截止时间和完成状态，可关联课程；自定义安排支持完成状态与提醒分钟数。
+- **校园地图**：按西土城、沙河校区检索常用地点，并可跳转外部地图服务查看路线。
+- **发现同学**：通过院系、兴趣与方向标签发现同学，发送好友申请，按课表可见性查询共同空闲时间。
+- **社区与组队**：校园讨论区、帖子回复、项目发布、申请加入与举报。
+- **站内通知**：好友申请、组队申请等事件的通知与已读状态。
+- **运营管理台**：邀请码生成、用户与内容管理、举报处理、受控标签维护和操作审计。
+
+## 技术栈
+
+| 部分 | 技术 |
+| --- | --- |
+| 客户端 | Flutter（Web/PWA、Android），`go_router`、`dio`、`flutter_secure_storage` |
+| API | Hono + TypeScript + Zod，同一份业务代码运行于 Node.js 与 Cloudflare Workers |
+| 数据库 | 本地 `node:sqlite`；生产 Cloudflare D1；SQL 迁移只追加 |
+| 管理台 | 原生 HTML/CSS/JavaScript 静态应用，无构建步骤 |
+| 测试与 CI | Vitest、Node test runner、Flutter Test、GitHub Actions |
+
+## 仓库结构
+
+```text
+.
+├── apps/
+│   ├── api/       Hono API、业务模块、SQL 迁移与测试
+│   ├── mobile/    Flutter 客户端（Web/PWA 与 Android）
+│   └── admin/     运营管理台静态页面
+├── docs/
+│   └── knowledge/ 按目录组织的项目知识库与架构决策（ADR）
+├── scripts/       知识库校验等脚本
+├── AGENT.md       仓库工作约定与实现边界
+└── README.md
+```
+
+更详细的模块说明、接口契约和架构决策见 [`docs/knowledge/`](docs/knowledge/)。
+
+## 本地开发
+
+### 环境要求
+
+- Node.js 22+
+- pnpm
+- Flutter stable（构建客户端时需要）
+
+### 启动 API 与管理台
 
 ```bash
 pnpm install
 pnpm db:migrate:local
-pnpm dev
-```
 
-API 默认监听 `http://localhost:8787`，OpenAPI 文档位于 `/openapi.json`。
-
-注册需要邀请码。本地没有预置邀请码，先用运营账号生成一个（需要已配置 `ADMIN_BOOTSTRAP_USERNAME` 与 `ADMIN_BOOTSTRAP_PASSWORD`）：
-
-```bash
-TOKEN=$(curl -s -X POST http://localhost:8787/v1/admin/auth/login -H 'content-type: application/json' \
-  -d '{"username":"operator","password":"<ADMIN_BOOTSTRAP_PASSWORD>"}' | node -pe 'JSON.parse(require("fs").readFileSync(0)).accessToken')
-CODE=$(curl -s -X POST http://localhost:8787/v1/admin/invites -H "authorization: Bearer $TOKEN" \
-  -H 'content-type: application/json' -d '{}' | node -pe 'JSON.parse(require("fs").readFileSync(0)).code')
-```
-
-然后注册（用户名 3–20 位字母、数字或下划线；邮箱会被记录但不验证）：
-
-```bash
-curl -X POST http://localhost:8787/v1/auth/register -H 'content-type: application/json' \
-  -d "{\"username\":\"student01\",\"email\":\"student@example.edu\",\"appPassword\":\"correct-horse-battery\",\"departmentId\":\"computer\",\"inviteCode\":\"$CODE\"}"
-```
-
-响应中的 `accessToken` 作为后续请求的 Bearer Token。
-
-## Cloudflare 部署
-
-生产环境已于 2026-10-22 部署，地址与当前配置见上文“生产环境”。重新部署时：
-
-1. 确认 `apps/api/wrangler.jsonc` 中的 D1 `database_id` 与 `ALLOWED_ORIGINS` 指向当前生产资源。
-2. 写入不可公开且长度充足的 `STUDENT_ID_PEPPER`（仅保留给已停用的 CAS 兼容代码；新账户不使用学号）：
-
-   ```bash
-   pnpm --filter @fstudy/api exec wrangler secret put STUDENT_ID_PEPPER
-   ```
-
-3. 执行远程迁移：`pnpm db:migrate:remote`（只追加，不修改已部署迁移）。
-4. 使用 Node 22 部署 API：`pnpm dlx node@22 node_modules/wrangler/bin/wrangler.js deploy`（在 `apps/api` 下）。
-5. 构建学生 Web：`flutter build web --release --dart-define=API_BASE_URL=https://fstudy-api.a07450865.workers.dev`。
-6. 部署学生 Web Worker：`pnpm dlx node@22 node_modules/wrangler/bin/wrangler.js deploy --config ../mobile/wrangler.jsonc`（在 `apps/api` 下）。
-7. 部署管理台：`pnpm dlx node@22 node_modules/wrangler/bin/wrangler.js pages deploy ../admin --project-name fstudy-admin --branch main`。
-
-生产环境通过邀请码开放注册（`INVITE_REGISTRATION_ENABLED=true`），没有邀请码仍无法创建账户。
-
-### 北邮 CAS（已停用）
-
-当前不验证学生身份（ADR-021）。浏览器跳转式 CAS 因北邮拒绝服务授权而关闭（`CAS_LOGIN_ENABLED` 未开启）。验证码与学校密码流程已注释停用，相关代码仍保留在仓库中，恢复前需要新的明确批准和安全评审。第三方库 [byrdocs/bupt-auth](https://github.com/byrdocs/bupt-auth) 不是官方接口，本仓库没有引入其代码，其 UCloud token 与角色流程不使用。
-
-## 管理控制台（本地开发）
-
-管理台是独立的静态 Web 应用，位于 `apps/admin`，不会复用学生端登录会话。首次启动 API 时，可通过环境变量创建首个管理员；密码至少 14 位，服务端只保存 PBKDF2 哈希。管理员首次创建后，更改环境变量不会覆盖已有账号，可在管理台内修改密码。
-
-```bash
+# 首次启动时创建管理员；密码至少 14 位
 ADMIN_BOOTSTRAP_USERNAME=operator \
 ADMIN_BOOTSTRAP_PASSWORD='use-a-unique-password-of-14-chars-or-more' \
 pnpm dev
 ```
 
-另开终端启动静态后台，访问 `http://127.0.0.1:8081`：
+API 默认监听 `http://127.0.0.1:8787`，OpenAPI 文档位于 `http://127.0.0.1:8787/openapi.json`。
+
+另开终端启动管理台：
 
 ```bash
-python3 -m http.server 8081 --bind 127.0.0.1 --directory apps/admin
+pnpm admin:dev
 ```
 
-生产部署时，应将 `apps/admin` 部署到独立的管理域名，并通过 HTTPS 访问；API `ALLOWED_ORIGINS` 需要显式允许此管理域名。使用 Wrangler secret 配置 `ADMIN_BOOTSTRAP_PASSWORD`，并配置 `ADMIN_BOOTSTRAP_USERNAME`。学生 Bearer token 与管理 API 的独立会话互不通用。管理员登录 token 只存于当前标签页的 `sessionStorage`，有效期 8 天，支持退出撤销与密码轮换。
+访问 `http://127.0.0.1:8081`，使用上面的管理员账号登录并生成邀请码。随后在学生端注册时填入该邀请码。管理员密码只保存 PBKDF2 哈希；首次创建后，修改环境变量不会覆盖已有账号。
 
-若管理前端和 API 不同源，部署方需在 `apps/admin/index.html` 的模块脚本之前设置 `window.FSTUDY_API_URL = 'https://api.example.com'`，并在 API CORS 白名单中加入管理台域名。
-
-管理 API 目前提供运营统计、用户搜索及封禁/恢复、讨论/回复/组队内容隐藏或删除、举报受理、受控标签维护和操作审计。封禁用户会关闭其发现展示并立即撤销现有学生会话。对外发布前仍需配置 HTTPS、管理域访问限制与备份策略。
-
-## 当前接口
-
-完整的请求/响应定义见 [docs/knowledge/apps/api/src/http/README.md](docs/knowledge/apps/api/src/http/README.md)。主要分组如下：
-
-- 认证：`POST /v1/auth/register`（需要邀请码与邮箱）、`/login`、`/logout`；北邮 CAS：`/v1/auth/cas/*`（浏览器登录，已关闭）；验证码路由已注释停用
-- 邀请码：`GET/POST /v1/me/invites`（每人每月 5 个）；运营：`POST /v1/admin/invites`
-- 个人资料与设置：`GET/PATCH /v1/me`、`GET/PUT /v1/me/academic-settings`、`GET/PUT /v1/me/tags`、`GET /v1/tags`（需要登录）
-- 课表与学习：`GET/POST/DELETE /v1/courses`、`PUT/DELETE /v1/courses/:id`、`GET/POST /v1/assignments`、`PUT/DELETE /v1/assignments/:id`、`PATCH /v1/assignments/:id/completion`、`GET/POST /v1/plans`、`PUT/DELETE /v1/plans/:id`、`PATCH /v1/plans/:id/completion`
-- 社交：`GET /v1/discover`、`GET /v1/friends`、`POST /v1/friend-requests`、`PATCH /v1/friend-requests/:id`、`GET /v1/availability`、`GET/POST /v1/availability-invites`、`PATCH /v1/availability-invites/:id`
-- 组队：`GET/POST /v1/projects`、`PATCH /v1/projects/:id/status`、`POST /v1/projects/:id/applications`、`GET/PATCH /v1/project-applications[/:id]`
-- 讨论区：`GET/POST /v1/forum/posts`、`GET /v1/forum/posts/:id`、`POST /v1/forum/posts/:id/replies`
-- 通知与举报：`GET /v1/notifications`、`POST /v1/notifications/read`、`POST /v1/reports`
-- 独立管理员 API：`/v1/admin/*`（登录、总览、用户、内容、举报、标签、审计）
-
-除注册、登录、CAS 入口、管理员登录、健康检查和 OpenAPI 文档外，业务接口使用 `Authorization: Bearer <token>`。API 默认对敏感响应设置 `Cache-Control: no-store`，并仅允许 `ALLOWED_ORIGINS` 中列出的浏览器来源。
-
-## Flutter
-
-Flutter 客户端当前支持 Web/PWA 与 Android 工程结构；本阶段以 Web 构建、静态检查和行为测试作为验证门槛。
-
-GitHub Actions 在推送到 `main`、Pull Request 和手动触发时执行 API 类型检查/测试/构建、后台 JavaScript 语法与请求行为测试，以及 Flutter 格式检查、分析、行为测试和 Web Release 构建。Android 打包暂不进入 CI，遵循当前 Web 优先迭代约束。
-
-本地 SQLite 开发入口会自动应用 `0001`–`0015` 迁移；Cloudflare D1 生产部署需显式执行 `pnpm db:migrate:remote`。预发迁移和部署状态见 `docs/knowledge/apps/api/migrations/README.md` 与 `AGENT.md`。
-
-## 生产环境（2026-10-22 已部署）
-
-| 用途 | 地址 |
-| --- | --- |
-| 学生 Web | `https://fstudy-web.a07450865.workers.dev` |
-| API | `https://fstudy-api.a07450865.workers.dev` |
-| 管理控制台 | `https://fstudy-admin.pages.dev` |
-| 预发 Web | `https://fstudy-student-staging.pages.dev` |
-| 预发 API | `https://fstudy-api-staging.a07450865.workers.dev` |
-
-- 生产 D1：`fstudy`（`a0fb31d4-6d34-42db-9895-daf724d8bd25`），迁移 `0001`–`0015` 已执行。
-- 注册仍需邀请码；`INVITE_REGISTRATION_ENABLED=true`。
-- 生产管理员账号为 `operator`，初始密码保存在仓库外的 `~/.fstudy/production-admin.txt`（权限 `0600`）。首次登录后请立即改密码。
-- 学生 Web 使用 Workers 静态资源（`apps/mobile/wrangler.jsonc`，SPA 回退）。`fstudy-student.pages.dev` 的 Pages 直传在该账号持续卡在 `upsert-hashes`，**该地址未使用**。
-- 当前 Wrangler 在 Node 26 上会对部分 Cloudflare API 挂起；部署时使用 Node 22：`pnpm dlx node@22 node_modules/wrangler/bin/wrangler.js ...`。
-
-## Android 打包与签名
-
-签名材料**不要提交到 Git**。`apps/mobile/android/key.properties`、`*.jks`、`*.keystore` 已在 `.gitignore` 中。
-
-首次创建上传密钥（务必离线备份；丢失后无法更新已发布应用）：
+### 启动 Flutter 客户端
 
 ```bash
 cd apps/mobile
-keytool -genkeypair -v \
-  -keystore android/app/upload-keystore.jks \
-  -keyalg RSA -keysize 2048 -validity 10000 \
-  -alias fstudy
-cp android/key.properties.example android/key.properties
-# 编辑 android/key.properties，填入真实密码与 storeFile=upload-keystore.jks
+flutter pub get
+flutter run -d web-server --web-hostname 127.0.0.1 --web-port 8080 \
+  --dart-define=API_BASE_URL=http://127.0.0.1:8787
 ```
 
-构建 Release APK（必须指定 API 地址，否则 Android 会回退到模拟器地址 `http://10.0.2.2:8787`）：
+API 地址通过 `--dart-define=API_BASE_URL=...` 注入。默认值：Web 为 `http://127.0.0.1:8787`，Android 模拟器为 `http://10.0.2.2:8787`。真机调试需要可访问的局域网地址或 `adb reverse`。
+
+## 配置
+
+主要环境变量：
+
+| 变量 | 说明 |
+| --- | --- |
+| `FSTUDY_DB_PATH` | 本地 SQLite 文件路径，默认 `apps/api/fstudy.sqlite` |
+| `PORT` | 本地 API 监听端口，默认 `8787` |
+| `INVITE_REGISTRATION_ENABLED` | 是否允许邀请码注册；Workers 环境需要显式设为 `true` |
+| `ALLOWED_ORIGINS` | CORS 白名单，逗号分隔，禁止使用 `*` |
+| `ADMIN_BOOTSTRAP_USERNAME` | 首次启动时创建的管理员用户名 |
+| `ADMIN_BOOTSTRAP_PASSWORD` | 首次启动时创建的管理员密码，至少 14 位 |
+| `STUDENT_ID_PEPPER` | 历史学号 HMAC 密钥；新账户不再使用学号 |
+| `CAS_LOGIN_ENABLED` | 浏览器 CAS 登录开关，当前关闭 |
+
+请勿提交 `.env`、`.dev.vars`、数据库文件、签名密钥、`key.properties` 或任何密码。生产密钥应通过 Cloudflare Wrangler secret 或 GitHub Actions Secrets 管理。
+
+## 验证
+
+后端：
 
 ```bash
-flutter build apk --release \
+pnpm check
+pnpm test
+pnpm build
+```
+
+Flutter：
+
+```bash
+cd apps/mobile
+dart format --output=none --set-exit-if-changed lib test
+flutter analyze
+flutter test
+flutter build web --release \
   --dart-define=API_BASE_URL=https://fstudy-api.a07450865.workers.dev
 ```
 
-产物：`apps/mobile/build/app/outputs/flutter-apk/app-release.apk`。
-
-按 ABI 拆分或构建 AAB：
+文档：
 
 ```bash
-flutter build apk --release --split-per-abi \
+pnpm knowledge:check
+```
+
+GitHub Actions 会在推送到 `main`、Pull Request 和手动触发时执行后端检查/测试/构建、管理台测试、知识库校验，以及 Flutter 格式检查、分析、测试与 Web Release 构建。
+
+## 部署
+
+生产环境使用 Cloudflare：
+
+- API：Worker `fstudy-api` + D1 数据库 `fstudy`
+- 学生 Web：Worker `fstudy-web` 静态资源，未知路径回退到 `index.html`
+- 管理台：Cloudflare Pages `fstudy-admin`
+
+重新部署时，在 `apps/api` 下执行：
+
+```bash
+# 1. 先执行只追加的远程迁移
+pnpm db:migrate:remote
+
+# 2. 部署 API（Wrangler 建议使用 Node 22）
+pnpm dlx node@22 node_modules/wrangler/bin/wrangler.js deploy
+```
+
+构建并部署学生 Web：
+
+```bash
+cd ../mobile
+flutter build web --release \
   --dart-define=API_BASE_URL=https://fstudy-api.a07450865.workers.dev
-flutter build appbundle --release \
-  --dart-define=API_BASE_URL=https://fstudy-api.a07450865.workers.dev
+cd ../api
+pnpm dlx node@22 node_modules/wrangler/bin/wrangler.js deploy \
+  --config ../mobile/wrangler.jsonc
 ```
 
-没有 `key.properties` 时构建会自动回退到 debug 签名，仅用于本地 `flutter run --release`，**不能发布**。主 Manifest 已声明 `INTERNET` 权限，Release 构建可以联网。
-
-## 上传到 GitHub
-
-仓库已包含 `.gitignore`、GitHub Actions CI 和知识库校验。上传前确认没有真实密钥：
+部署管理台：
 
 ```bash
-git status
-git grep -nE "STUDENT_ID_PEPPER=.+|ADMIN_BOOTSTRAP_PASSWORD=.+|storePassword=.+" -- . ':!*.example'
+pnpm dlx node@22 node_modules/wrangler/bin/wrangler.js pages deploy \
+  ../admin --project-name fstudy-admin --branch main
 ```
 
-推送到空仓库：
+部署前请确认 `ALLOWED_ORIGINS` 覆盖实际前端域名，并且没有使用开发环境密钥或占位 D1 配置。
 
-```bash
-git remote add origin git@github.com:<你的账号>/<仓库名>.git
-git branch -M main
-git push -u origin main
-```
+### Android
 
-CI 会执行 API 检查/测试/构建、知识库校验、管理台语法与请求行为测试，以及 Flutter 格式检查、分析、会话持久化单元测试、组件测试和 Web Release 构建。Cloudflare 部署凭据不要写进仓库，应放在 GitHub Actions Secrets（当前工作流不自动部署）。
+Android Release 构建需要项目自己的签名密钥，`apps/mobile/android/key.properties`、`*.jks` 与 `*.keystore` 均不得提交。没有签名配置时构建会回退到 debug 签名，只适合本地测试，不能发布。签名步骤见 [`AGENT.md`](AGENT.md) 与 `apps/mobile/android/key.properties.example`。
 
-## 生产维护检查表
+## 安全与隐私
 
-- [x] 创建生产 D1 `fstudy` 并写入 `database_id`
-- [x] 写入 secrets：`STUDENT_ID_PEPPER`、`ADMIN_BOOTSTRAP_USERNAME`、`ADMIN_BOOTSTRAP_PASSWORD`
-- [x] 设置 `ALLOWED_ORIGINS` 与 `INVITE_REGISTRATION_ENABLED`
-- [x] 执行生产迁移 `0001`–`0015`
-- [x] 部署 API Worker `fstudy-api`
-- [x] 构建并部署学生 Web Worker `fstudy-web`
-- [x] 部署管理控制台 `fstudy-admin`
-- [ ] 首次登录管理台后修改 `operator` 密码
-- [ ] 用真实 keystore 构建并签名 Android Release APK，离线备份 keystore 与密码
-- [ ] 定期备份生产 D1
+- 注册采用邀请制；没有邀请码无法创建账户。
+- 邮箱仅记录、不验证，不向其他用户展示。
+- 不验证学生身份，不保存学校密码、验证码或学校会话；CAS 登录当前关闭。
+- 学生会话有效期 30 天；Web 端令牌保存在本地安全存储中，仅在服务端明确返回 401 时清除。
+- 计划备注不会返回给其他用户；好友课表可见性支持完全私密、仅忙闲、显示课程名和完整信息四级。
+- 发现安全问题或敏感信息时，请勿在公开 Issue 中粘贴令牌、密码或个人信息，先通过仓库维护者联系。
+
+## 文档与贡献
+
+项目知识库位于 [`docs/knowledge/`](docs/knowledge/)，记录了各模块职责、接口契约与架构决策。修改代码前请阅读 [`AGENT.md`](AGENT.md) 中的工作约定，并在同一变更中同步更新相关文档。
+
+欢迎通过 [GitHub 仓库](https://github.com/usfese/fstudy) 提交 Issue、讨论或 Pull Request。

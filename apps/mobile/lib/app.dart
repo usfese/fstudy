@@ -3,6 +3,7 @@ import 'package:flutter/semantics.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:go_router/go_router.dart';
 
+import 'features/about/about_page.dart';
 import 'features/academic/academic_repository.dart';
 import 'features/academic/assignments_page.dart';
 import 'features/academic/courses_page.dart';
@@ -214,6 +215,10 @@ class _FStudyAppState extends State<FStudyApp> {
                       path: 'tags',
                       builder: (context, state) =>
                           TagSettingsPage(repository: _socialRepository!),
+                    ),
+                    GoRoute(
+                      path: 'about',
+                      builder: (context, state) => const AboutPage(),
                     ),
                   ],
                 ),
