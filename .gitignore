@@ -11,6 +11,7 @@ coverage/
 .dart_tool/
 .flutter-plugins*
 build/
+/release/
 
 # Android release signing (never commit)
 apps/mobile/android/key.properties

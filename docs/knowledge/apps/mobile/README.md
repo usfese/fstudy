@@ -1,6 +1,6 @@
 # apps/mobile — Flutter 客户端根目录
 
-包名 `fstudy`，Flutter 稳定版，Dart SDK `^3.13.5`。**当前迭代以 Web/PWA 为主要目标**（`AGENT.md`），Android 与 iOS 工程保留但暂不构建或测试。
+包名 `fstudy`，Flutter 稳定版，Dart SDK `^3.13.5`。Web/PWA 与 Android 均为发布目标（`AGENT.md`）；Android Release 由 tag 驱动的 GitHub Actions 构建并直接分发 APK，不使用 Google Play。iOS 工程保留但暂不构建。
 
 ## 目录结构
 
@@ -11,17 +11,17 @@ apps/mobile/
 ├── test/class_periods_test.dart  4 个固定节次与短期输入记忆单元测试
 ├── test/auth_repository_test.dart  6 个会话持久化单元测试（假 Dio 适配器 + 内存存储）
 ├── web/                 Web 入口与 PWA 资源（手写，需要关注）
-├── android/             Android 平台工程（生成 + 少量配置，暂不构建）
+├── android/             Android 平台工程（参与 CI 调试构建与 tag 发布）
 ├── ios/                 iOS 平台工程（保留结构，不构建）
 ├── wrangler.jsonc       生产 Web 的 Workers 静态资源配置（SPA 回退，`fstudy.usfese.cc`）
 ├── wrangler.staging.jsonc  预发 Web 的 Workers 静态资源配置（`fstudy-staging.usfese.cc`）
 ├── analysis_options.yaml  引入 flutter_lints，排除 build/android/ios/web
 ├── pubspec.yaml
-├── README.md            Flutter 默认模板，内容未更新（见下）
+├── README.md            客户端开发、构建与发布入口
 └── build/               构建产物（已忽略）
 ```
 
-`apps/mobile/README.md` 仍是 Flutter 模板文字，**不反映项目实际状态**。以本文档与根目录 `README.md` 为准；如需更新，应改写该文件。
+`apps/mobile/README.md` 提供客户端开发、构建与发布入口；模块级约束与架构细节以本文档和根目录 `README.md` 为准。
 
 ## 依赖（`pubspec.yaml`）
 
@@ -48,6 +48,10 @@ cd apps/mobile
 flutter pub get
 flutter run -d web-server --web-hostname 127.0.0.1 --web-port 8080
 flutter build web --release       # 产物：build/web
+
+flutter build apk --debug         # Android 调试构建
+flutter build apk --release       # 通用 Release APK，需要签名配置
+flutter build apk --release --split-per-abi  # 分 ABI Release APK
 ```
 
 API 地址通过编译参数注入：
@@ -69,7 +73,18 @@ flutter test
 flutter build web --release
 ```
 
-CI 中执行的就是上述命令（见 [.github/workflows](../../.github/workflows/README.md)）。Android 相关命令（`flutter build apk`）只在用户明确恢复 Android 工作后才运行。
+CI 中执行上述 Web 验证命令，并额外执行 `flutter build apk --debug`（见 [.github/workflows](../../.github/workflows/README.md)）。涉及 Android、插件或签名配置的改动必须本地或 CI 通过 Android 构建。
+
+## Android 发布与签名
+
+- 版本来源：`pubspec.yaml` 的 `version: MAJOR.MINOR.PATCH+BUILD`。`BUILD` 作为 Android `versionCode`，每次发布递增。
+- 发布 tag：`vMAJOR.MINOR.PATCH`，必须位于 `main`，且与 `pubspec.yaml` 的 SemVer 一致。
+- 发布工作流：`.github/workflows/release.yml`。它复用 CI，构建通用 APK 与 `arm64-v8a`、`armeabi-v7a`、`x86_64` 分 ABI APK，生成 `SHA256SUMS.txt`，然后创建 GitHub Release。
+- 项目不使用 Google Play，因此不生成 AAB。
+- 签名配置位于 `apps/mobile/android/key.properties`，指向一个 `.jks`。两者都被 Git 忽略。
+- GitHub Actions 通过 `ANDROID_KEYSTORE_BASE64`、`ANDROID_KEYSTORE_PASSWORD`、`ANDROID_KEY_PASSWORD`、`ANDROID_KEY_ALIAS` 注入签名材料。
+- 没有 `key.properties` 时，Gradle 的 release 构建会直接失败，禁止回退到 debug 签名发布。
+- `apps/mobile/README.md` 是客户端入口文档；发布与签名细节以本节和 `CONTRIBUTING.md` 为准。
 
 ## 镜像
 
@@ -81,7 +96,3 @@ export FLUTTER_STORAGE_BASE_URL=https://storage.flutter-io.cn
 ```
 
 不得为绕过网络问题而禁用 TLS 校验。
-
-## 待确认
-
-1. `apps/mobile/README.md` 为模板内容，需要替换为项目说明或指向根目录文档。

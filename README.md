@@ -9,7 +9,7 @@
 - 预发 Web：[fstudy-staging.usfese.cc](https://fstudy-staging.usfese.cc)
 - 预发 API：[fstudy-api-staging.usfese.cc](https://fstudy-api-staging.usfese.cc)
 
-> 当前迭代以 Web/PWA 为主要目标。Flutter 客户端同时保留 Android 工程，iOS 工程结构保留但暂不构建。
+> Web/PWA 与 Android 均为当前发布目标；Android 通过 GitHub Release 直接分发 APK，不使用 Google Play。iOS 工程结构保留但暂不构建。
 
 ## 功能
 
@@ -30,7 +30,7 @@
 | API | Hono + TypeScript + Zod，同一份业务代码运行于 Node.js 与 Cloudflare Workers |
 | 数据库 | 本地 `node:sqlite`；生产 Cloudflare D1；SQL 迁移只追加 |
 | 管理台 | 原生 HTML/CSS/JavaScript 静态应用，无构建步骤，由 Cloudflare Worker 托管 |
-| 测试与 CI | Vitest、Node test runner、Flutter Test、GitHub Actions |
+| 测试与 CI | Vitest、Node test runner、Flutter Test、GitHub Actions（CI + Android Release） |
 
 ## 仓库结构
 
@@ -42,8 +42,10 @@
 │   └── admin/     运营管理台静态页面
 ├── docs/
 │   └── knowledge/ 按目录组织的项目知识库与架构决策（ADR）
-├── scripts/       知识库校验等脚本
+├── scripts/       知识库校验与版本脚本
 ├── AGENT.md       仓库工作约定与实现边界
+├── CONTRIBUTING.md 分支、验证与发布流程
+├── CHANGELOG.md   版本变更记录
 └── README.md
 ```
 
@@ -134,7 +136,33 @@ flutter build web --release \
 pnpm knowledge:check
 ```
 
-GitHub Actions 会在推送到 `main`、Pull Request 和手动触发时执行后端检查/测试/构建、管理台测试、知识库校验，以及 Flutter 格式检查、分析、测试与 Web Release 构建。
+GitHub Actions 会在推送到 `main`、Pull Request 和手动触发时执行后端检查/测试/构建、管理台测试、知识库校验、Flutter 格式检查/分析/测试/Web Release 构建，以及 Android debug APK 构建。推送 `v*` 标签时还会自动构建并发布 Android APK。
+
+## 开发流程与发布
+
+`main` 是受保护分支，所有改动通过 Pull Request 合并。分支命名、提交约定和完整检查清单见 [`CONTRIBUTING.md`](CONTRIBUTING.md)。
+
+发布使用 `vMAJOR.MINOR.PATCH` annotated tag。发布前先更新版本号和构建号：
+
+```bash
+pnpm release:version 1.1.0
+```
+
+该命令会把 `apps/mobile/pubspec.yaml` 更新为类似 `1.1.0+2` 的形式。更新 `CHANGELOG.md`、合并 PR 后，在 `main` 上打标签并推送：
+
+```bash
+git tag -a v1.1.0 -m "FStudy v1.1.0"
+git push origin v1.1.0
+```
+
+`.github/workflows/release.yml` 会先运行完整 CI，再构建以下产物并创建 GitHub Release：
+
+- 通用 APK
+- `arm64-v8a`、`armeabi-v7a`、`x86_64` 分 ABI APK
+- `BUILD_INFO.txt`
+- `SHA256SUMS.txt`
+
+发布 workflow 会校验 tag 在 `main` 上，并要求 tag 版本与 `pubspec.yaml` 一致。Android 签名密钥通过 GitHub Actions Secrets 注入；本地没有 `key.properties` 时 Release 构建会失败，不会使用 debug 签名。
 
 ## 部署
 
@@ -197,7 +225,9 @@ pnpm dlx node@22 apps/api/node_modules/wrangler/bin/wrangler.js deploy \
 
 ### Android
 
-Android Release 构建需要项目自己的签名密钥，`apps/mobile/android/key.properties`、`*.jks` 与 `*.keystore` 均不得提交。没有签名配置时构建会回退到 debug 签名，只适合本地测试，不能发布。签名步骤见 [`AGENT.md`](AGENT.md) 与 `apps/mobile/android/key.properties.example`。
+Android Release 构建需要项目自己的签名密钥，`apps/mobile/android/key.properties`、`*.jks` 与 `*.keystore` 均不得提交。没有签名配置时 Release 构建会直接失败，不会回退到 debug 签名。本地签名配置模板见 `apps/mobile/android/key.properties.example`；GitHub Actions 使用 `ANDROID_KEYSTORE_BASE64`、`ANDROID_KEYSTORE_PASSWORD`、`ANDROID_KEY_PASSWORD` 和 `ANDROID_KEY_ALIAS` 四个 Secrets。
+
+项目当前不使用 Google Play，因此 Release 只发布通用 APK 和分 ABI APK，不生成 AAB。安装时优先选择与设备 ABI 匹配的 APK；不确定时使用通用 APK。
 
 ## 安全与隐私
 
@@ -212,4 +242,4 @@ Android Release 构建需要项目自己的签名密钥，`apps/mobile/android/k
 
 项目知识库位于 [`docs/knowledge/`](docs/knowledge/)，记录了各模块职责、接口契约与架构决策。修改代码前请阅读 [`AGENT.md`](AGENT.md) 中的工作约定，并在同一变更中同步更新相关文档。
 
-欢迎通过 [GitHub 仓库](https://github.com/usfese/fstudy) 提交 Issue、讨论或 Pull Request。
+欢迎通过 [GitHub 仓库](https://github.com/usfese/fstudy) 提交 Issue、讨论或 Pull Request。提交代码前请阅读 [`CONTRIBUTING.md`](CONTRIBUTING.md)。

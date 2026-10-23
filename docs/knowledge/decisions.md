@@ -21,7 +21,7 @@
 | ADR-011 | 通知尽力投递，无系统推送 | 生效 | notification, best-effort, polling |
 | ADR-012 | 并发安全靠 SQL 条件写入 | 生效 | concurrency, capacity, batch, project |
 | ADR-013 | 速率限制落在数据库 | 生效 | rate limit, throttle, lockout |
-| ADR-014 | Flutter Web 优先，Android/iOS 暂缓 | 生效 | Flutter, Web, Android, scope |
+| ADR-014 | Flutter Web 优先，Android/iOS 暂缓 | 部分替代 | Flutter, Web, Android, scope |
 | ADR-015 | Flutter 仓库接口 + Dio + go_router | 生效 | repository, Dio, go_router, secure storage |
 | ADR-016 | 管理后台为独立静态前端 | 生效 | admin, static, origin |
 | ADR-017 | 迁移只做前向变更（本地按标志表或索引检测） | 生效 | migration, D1, forward-only, node.ts |
@@ -29,6 +29,7 @@
 | ADR-021 | 邀请码注册、记录邮箱、停用学生身份验证 | 部分替代 | invite, email, registration, quota |
 | ADR-022 | 内测期间不强制学生身份过期 | 已替代 | beta, identity, expiry, invite-only |
 | ADR-023 | 账户以用户名标识，学号退为预留字段 | 生效 | username, login, student id, migration |
+| ADR-024 | Android 发布采用 tag 驱动的 GitHub Actions，仅分发 APK | 生效 | release, tag, Android, signing, GitHub Actions |
 | ADR-019 | 好友课表可见级别（四级） | 生效 | schedule_visibility, friendBlocks, privacy |
 | ADR-020 | 保留预留依赖（本地通知、riverpod、drift） | 生效 | Android, notification, dependency |
 
@@ -155,11 +156,11 @@
 
 ## ADR-014：Flutter 客户端采用 Web 优先，Android/iOS 按需恢复
 
-- **状态**：生效
-- **决策**：当前迭代以 Flutter Web/PWA 为主要验证目标，`flutter analyze`、`flutter test` 与 Web 构建为门槛；不构建 APK/AAB；iOS 工程保留但不构建。
+- **状态**：部分替代（2026-10-23）。Android 发布与验证由 [ADR-024](#adr-024android-发布采用-tag-驱动的-github-actions仅分发-apk) 接管；Web 优先验证与 iOS 暂缓仍有效。
+- **历史决策**：当前迭代以 Flutter Web/PWA 为主要验证目标，`flutter analyze`、`flutter test` 与 Web 构建为门槛；不构建 APK/AAB；iOS 工程保留但不构建。
 - **理由**：快速迭代；Android 通知与真机测试成本高，用户明确推迟。
-- **影响**：共享代码需保持可移植；`flutter_local_notifications` 等依赖已声明但暂未在 `lib/` 中使用。
-- **依据**：`AGENT.md`「Current iteration constraint」。
+- **影响**：共享代码需保持可移植；`flutter_local_notifications` 等依赖已声明但暂未在 `lib/` 中使用。Android 现在参与 CI 调试构建与 tag 发布。
+- **依据**：`AGENT.md`「Current iteration」；[ADR-024](#adr-024android-发布采用-tag-驱动的-github-actions仅分发-apk)。
 
 ## ADR-015：Flutter 客户端采用仓库接口 + Dio 实现 + go_router 路由
 
@@ -250,4 +251,18 @@
 - **理由**：用户要求彻底移除学号、只用用户名，同时保留数据库学号列供未来扩展。邀请制内测不再依赖学号作为身份。
 - **影响**：`POST /v1/auth/register` 与 `POST /v1/auth/login` 的 `studentId` 字段改为 `username`；Flutter、测试、OpenAPI 与文档同步更新。`STUDENT_ID_PEPPER` 只被保留的 CAS 代码使用。正式发布前仍需重新评估身份可信度与合规要求。
 - **依据**：用户决定（2026-10-22）；`apps/api/migrations/0015_usernames.sql`；`apps/api/src/modules/identity/account-service.ts`；`apps/mobile/lib/features/auth/auth_page.dart`。
+
+## ADR-024：Android 发布采用 tag 驱动的 GitHub Actions，仅分发 APK
+
+- **状态**：生效（2026-10-23）
+- **决策**：
+  1. `main` 为受保护分支；版本使用 `vMAJOR.MINOR.PATCH` annotated tag，且 tag 提交必须可从 `main` 到达。
+  2. tag 去掉 `v` 后必须等于 `apps/mobile/pubspec.yaml` 的 SemVer；`+N` 构建号作为 Android `versionCode`。
+  3. 推送 `v*` tag 触发 `.github/workflows/release.yml`：先复用 CI，再构建通用 APK、`arm64-v8a`、`armeabi-v7a`、`x86_64` 分 ABI APK，生成 `SHA256SUMS.txt`，创建 GitHub Release。
+  4. 项目不使用 Google Play，因此不生成 AAB，用户直接安装 APK。
+  5. 签名材料只保存在本地和 GitHub Actions Secrets：`ANDROID_KEYSTORE_BASE64`、`ANDROID_KEYSTORE_PASSWORD`、`ANDROID_KEY_PASSWORD`、`ANDROID_KEY_ALIAS`。
+  6. Release 构建缺少 `apps/mobile/android/key.properties` 时直接失败，禁止 debug 签名回退。
+- **理由**：GitHub Release 是当前唯一分发渠道；tag 驱动可保证版本、构建号和产物一一对应，避免手工构建造成版本漂移或误发 debug 包。
+- **影响**：每次发布必须先更新 `pubspec.yaml` 与 `CHANGELOG.md`，合并后再打 tag；已发布 tag 不应删除或复用。keystore 丢失将导致无法更新已安装应用，必须保留离线备份。
+- **依据**：用户决定（2026-10-23）；`.github/workflows/release.yml`；`.github/workflows/ci.yml`；`apps/mobile/android/app/build.gradle.kts`；`CONTRIBUTING.md`。
 
