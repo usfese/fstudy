@@ -21,10 +21,10 @@
 | [apps/api/migrations](./apps/api/migrations/README.md) | 数据库迁移与表结构 |
 | [apps/api/test](./apps/api/test/README.md) | API 测试套件 |
 | [apps/admin](./apps/admin/README.md) | 管理后台静态前端 |
-| [apps/mobile](./apps/mobile/README.md) | Flutter 客户端（Web 优先）根目录与构建 |
+| [apps/mobile](./apps/mobile/README.md) | Flutter 客户端（Web 与 Android）根目录、构建与发布 |
 | [apps/mobile/lib](./apps/mobile/lib/README.md) | Flutter 应用组装、路由、会话、仓库模式 |
 | [apps/mobile/lib/features](./apps/mobile/lib/features/README.md) | 各功能模块与其调用的后端接口映射 |
-| [.github/workflows](./.github/workflows/README.md) | CI 流水线 |
+| [.github/workflows](./.github/workflows/README.md) | CI 与 Android 发布流水线 |
 | [decisions.md](./decisions.md) | 重大架构决策记录（ADR） |
 
 ## 整体架构
@@ -32,7 +32,7 @@
 ```
 ┌──────────────────────┐     ┌──────────────────────┐
 │ apps/mobile (Flutter)│     │ apps/admin (静态 JS) │
-│ Web/PWA 优先         │     │ 独立管理员会话       │
+│ Web/PWA + Android    │     │ 独立管理员会话       │
 └──────────┬───────────┘     └──────────┬───────────┘
            │ Bearer token (学生)         │ Bearer token (管理员)
            ▼                            ▼
@@ -55,12 +55,13 @@
 
 请求链路：`entrypoint` 组装依赖 → `createApp(dependencies)` 注册全局中间件（安全头、CORS、请求体大小、Content-Type）→ 路由层用 Zod 校验请求 → 调用 `modules/*` 服务 → 通过 `SqlDatabase` 访问数据库。统一错误格式为 `{ "error": { "code", "message" } }`，由 `DomainError` 抛出。
 
-## 状态说明（2026-10-22）
+## 状态说明（2026-10-23）
 
 - 账户体系已改为用户名（ADR-023）：用户名 3–20 位 `[A-Za-z0-9_]`，统一小写存储，登录不区分大小写；`displayName` 仅用于展示。旧账户由 `0015` 回填为 `user_<id8>`。
 - 注册仍需邀请码（`INVITE_REGISTRATION_ENABLED=true`）；邮箱记录但不验证，不做学校验证、验证码或学号校验。
 - 北邮 CAS 仅保留给历史 `student_identities` 行，`CAS_LOGIN_ENABLED=false`，且不能创建新账户。
 - 预发与生产均已应用 `0001`–`0015`；生产地址与部署方式见根 `README.md`。
+- Android 发布改为 tag 驱动的 GitHub Actions（ADR-024）：仅分发通用 APK 与分 ABI APK，不使用 Google Play/AAB。
 
 ## 维护约定
 

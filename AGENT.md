@@ -12,14 +12,14 @@ Current priority platforms:
 - Flutter Android
 - iOS project structure is retained for future support, but iOS is not currently built
 
-### Current iteration constraint
+### Current iteration
 
-Web is the active rapid-iteration target. Until the user explicitly re-enables Android work:
+Web and Android are active targets. Android release builds are produced by the tag-driven GitHub Actions workflow and distributed directly as APKs; Google Play/AAB is out of scope.
 
-- Do not run Android APK/AAB builds.
-- Do not spend iteration time on Android-only notification setup or device testing.
-- Keep shared Flutter code portable to Android, but validate product flows on Web first.
-- Use `flutter analyze`, `flutter test`, and Web builds as the client verification gate.
+- Validate product flows on Web first, then keep Android builds green.
+- Run Android debug builds for Android, plugin, or signing changes.
+- Do not spend iteration time on Android-only notification setup or device testing unless requested.
+- Use `flutter analyze`, `flutter test`, Web builds, and Android debug builds as the client verification gate.
 - Continue storing reminder settings, but defer operating-system notification delivery.
 
 The first usable release focuses on:
@@ -43,11 +43,11 @@ Follow this order unless the user explicitly changes it:
 4. Introduce shared responsive navigation for Web and Android
 5. Add custom plans and persist reminder settings
 6. Complete Web-first coursework and collaboration flows
-7. Resume Android local notifications only when the user explicitly requests Android work
+7. Keep Android local notifications deferred until the user explicitly requests them
 8. Add friends, privacy, and shared-free-time invitations
 9. Add controlled-tag recommendations
 10. Add forum and project sharing
-11. Add CI for Web first; add Android CI when Android work resumes
+11. Maintain CI for Web and Android; releases are tag-driven
 
 Do not skip core coursework reliability to begin social features early.
 
@@ -187,18 +187,31 @@ From `apps/mobile`:
 ```bash
 flutter build web --release
 flutter build apk --debug
+flutter build apk --release
 flutter build apk --release --split-per-abi
-flutter build appbundle --release
 ```
 
 Artifacts:
 
 - Web: `apps/mobile/build/web`
 - Debug APK: `apps/mobile/build/app/outputs/flutter-apk/app-debug.apk`
-- Release APKs: `apps/mobile/build/app/outputs/flutter-apk`
-- Release AAB: `apps/mobile/build/app/outputs/bundle/release/app-release.aab`
+- Universal release APK: `apps/mobile/build/app/outputs/flutter-apk/app-release.apk`
+- Split release APKs: `apps/mobile/build/app/outputs/flutter-apk/app-*-release.apk`
 
-Release Android builds need a project-owned signing key before external distribution. Never commit the key or its passwords.
+Release Android builds require a project-owned signing key before distribution. Without `apps/mobile/android/key.properties`, the Gradle release build fails instead of falling back to debug signing. Never commit the key or its passwords. The tag-driven release workflow publishes APKs only; AAB/Google Play is not used.
+
+## Release Process
+
+1. Run `pnpm release:version X.Y.Z` to increment the SemVer and Android build number in `apps/mobile/pubspec.yaml`.
+2. Update `CHANGELOG.md` and merge the release PR into `main`.
+3. Create an annotated tag on `main` and push it:
+   ```bash
+   git tag -a vX.Y.Z -m "FStudy vX.Y.Z"
+   git push origin vX.Y.Z
+   ```
+4. `.github/workflows/release.yml` verifies the tag is on `main`, checks that the tag matches `pubspec.yaml`, builds signed universal and per-ABI APKs, and creates the GitHub Release.
+
+Signing secrets: `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_PASSWORD`, `ANDROID_KEY_ALIAS`. Never print or commit their values.
 
 ## Required Verification
 
@@ -297,7 +310,7 @@ Read this section before continuing. It supersedes earlier handoff text about ca
 ### Repository state
 
 - Migration `0015_usernames.sql` adds `users.username`, backfills legacy accounts, and creates a unique index. `student_identities` remains as a reserved table. It has **not** been applied to remote staging or production.
-- Android release signing is configured from `apps/mobile/android/key.properties` with a debug fallback; `key.properties` and keystores are git-ignored.
+- Android release signing is configured from `apps/mobile/android/key.properties`; release builds fail without it, and `key.properties`/keystores are git-ignored. GitHub Actions holds the release signing secrets.
 - Production config `apps/api/wrangler.jsonc` has been deployed to Cloudflare; treat changes to D1 IDs, origins, or routes as production changes. See the Production section.
 - Verification after the username change: API `pnpm check`, `pnpm test` (34 tests), `pnpm build`, `pnpm knowledge:check`; admin `node --test tests/admin.test.mjs` (5 tests); Flutter `dart format`, `flutter analyze`, `flutter test` (39 tests), `flutter build web --release`.
 

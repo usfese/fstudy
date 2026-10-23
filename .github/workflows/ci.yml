@@ -5,6 +5,7 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read
@@ -76,3 +77,35 @@ jobs:
       - name: Build Flutter Web
         working-directory: apps/mobile
         run: flutter build web --release
+
+  android:
+    name: Android debug build
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Install Flutter dependencies
+        working-directory: apps/mobile
+        run: flutter pub get
+
+      - name: Build debug APK
+        working-directory: apps/mobile
+        run: flutter build apk --debug

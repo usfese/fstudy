@@ -1,5 +1,6 @@
 import java.io.FileInputStream
 import java.util.Properties
+import org.gradle.api.GradleException
 
 plugins {
     id("com.android.application")
@@ -12,6 +13,17 @@ val keystorePropertiesFile = rootProject.file("key.properties")
 val hasReleaseSigning = keystorePropertiesFile.exists()
 if (hasReleaseSigning) {
     keystoreProperties.load(FileInputStream(keystorePropertiesFile))
+}
+
+val isReleaseBuild = gradle.startParameter.taskNames.any {
+    it.contains("release", ignoreCase = true)
+}
+if (isReleaseBuild && !hasReleaseSigning) {
+    throw GradleException(
+        "Release signing is not configured. Create apps/mobile/android/key.properties " +
+            "and the referenced keystore before building a release. " +
+            "Use a debug build for local testing without the release key.",
+    )
 }
 
 android {
@@ -53,13 +65,10 @@ android {
 
     buildTypes {
         release {
-            // Uses android/key.properties + a local keystore when present.
-            // Without them it falls back to debug signing so `flutter run --release`
-            // still works, but such an APK must not be published.
-            signingConfig = if (hasReleaseSigning) {
-                signingConfigs.getByName("release")
-            } else {
-                signingConfigs.getByName("debug")
+            // Release builds require android/key.properties + the referenced keystore.
+            // The guard above fails early instead of silently publishing a debug-signed APK.
+            if (hasReleaseSigning) {
+                signingConfig = signingConfigs.getByName("release")
             }
         }
     }

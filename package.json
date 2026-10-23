@@ -8,6 +8,7 @@
     "build": "pnpm --filter @fstudy/api build",
     "check": "pnpm --filter @fstudy/api check",
     "knowledge:check": "node scripts/knowledge-check.mjs --strict",
+    "release:version": "node scripts/release-version.mjs",
     "test": "pnpm --filter @fstudy/api test && node --test tests/admin.test.mjs",
     "test:admin": "node --test tests/admin.test.mjs",
     "db:migrate:local": "pnpm --filter @fstudy/api db:migrate:local",
