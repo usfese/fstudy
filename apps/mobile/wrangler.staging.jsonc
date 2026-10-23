@@ -1,0 +1,16 @@
+{
+  "name": "fstudy-staging",
+  "compatibility_date": "2026-10-23",
+  "workers_dev": false,
+  "preview_urls": false,
+  "routes": [
+    {
+      "pattern": "fstudy-staging.usfese.cc",
+      "custom_domain": true
+    }
+  ],
+  "assets": {
+    "directory": "./build/web-staging",
+    "not_found_handling": "single-page-application"
+  }
+}

@@ -1,6 +1,12 @@
 {
   "name": "fstudy-web",
   "compatibility_date": "2026-10-22",
+  "routes": [
+    {
+      "pattern": "fstudy.usfese.cc",
+      "custom_domain": true
+    }
+  ],
   "assets": {
     "directory": "./build/web",
     "not_found_handling": "single-page-application"

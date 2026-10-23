@@ -3,9 +3,11 @@
 面向北京邮电大学学生的课业与轻社交应用。FStudy 把课表、作业、自定义安排、校园地图、同学发现、讨论区与组队整合在一起，帮助学生更清楚地安排学习，也更容易找到志同道合的伙伴。
 
 - 源码仓库：[github.com/usfese/fstudy](https://github.com/usfese/fstudy)
-- 学生 Web：[fstudy-web.a07450865.workers.dev](https://fstudy-web.a07450865.workers.dev)
-- API：[fstudy-api.a07450865.workers.dev](https://fstudy-api.a07450865.workers.dev)
-- 管理控制台：[fstudy-admin.pages.dev](https://fstudy-admin.pages.dev)
+- 学生 Web：[fstudy.usfese.cc](https://fstudy.usfese.cc)
+- API：[fstudy-api.usfese.cc](https://fstudy-api.usfese.cc)
+- 管理控制台：[fstudy-admin.usfese.cc](https://fstudy-admin.usfese.cc)
+- 预发 Web：[fstudy-staging.usfese.cc](https://fstudy-staging.usfese.cc)
+- 预发 API：[fstudy-api-staging.usfese.cc](https://fstudy-api-staging.usfese.cc)
 
 > 当前迭代以 Web/PWA 为主要目标。Flutter 客户端同时保留 Android 工程，iOS 工程结构保留但暂不构建。
 
@@ -27,7 +29,7 @@
 | 客户端 | Flutter（Web/PWA、Android），`go_router`、`dio`、`flutter_secure_storage` |
 | API | Hono + TypeScript + Zod，同一份业务代码运行于 Node.js 与 Cloudflare Workers |
 | 数据库 | 本地 `node:sqlite`；生产 Cloudflare D1；SQL 迁移只追加 |
-| 管理台 | 原生 HTML/CSS/JavaScript 静态应用，无构建步骤 |
+| 管理台 | 原生 HTML/CSS/JavaScript 静态应用，无构建步骤，由 Cloudflare Worker 托管 |
 | 测试与 CI | Vitest、Node test runner、Flutter Test、GitHub Actions |
 
 ## 仓库结构
@@ -123,7 +125,7 @@ dart format --output=none --set-exit-if-changed lib test
 flutter analyze
 flutter test
 flutter build web --release \
-  --dart-define=API_BASE_URL=https://fstudy-api.a07450865.workers.dev
+  --dart-define=API_BASE_URL=https://fstudy-api.usfese.cc
 ```
 
 文档：
@@ -136,13 +138,15 @@ GitHub Actions 会在推送到 `main`、Pull Request 和手动触发时执行后
 
 ## 部署
 
-生产环境使用 Cloudflare：
+生产环境使用 Cloudflare，自定义域名均位于 `usfese.cc`：
 
-- API：Worker `fstudy-api` + D1 数据库 `fstudy`
-- 学生 Web：Worker `fstudy-web` 静态资源，未知路径回退到 `index.html`
-- 管理台：Cloudflare Pages `fstudy-admin`
+- API：Worker `fstudy-api` + D1 数据库 `fstudy`，域名 `https://fstudy-api.usfese.cc`
+- 学生 Web：Worker `fstudy-web` 静态资源，域名 `https://fstudy.usfese.cc`，未知路径回退到 `index.html`
+- 管理台：Worker `fstudy-admin` 静态资源，域名 `https://fstudy-admin.usfese.cc`
+- 预发 API：Worker `fstudy-api-staging`，域名 `https://fstudy-api-staging.usfese.cc`
+- 预发 Web：Worker `fstudy-staging` 静态资源，域名 `https://fstudy-staging.usfese.cc`
 
-重新部署时，在 `apps/api` 下执行：
+重新部署 API 时，在 `apps/api` 下执行：
 
 ```bash
 # 1. 先执行只追加的远程迁移
@@ -152,25 +156,44 @@ pnpm db:migrate:remote
 pnpm dlx node@22 node_modules/wrangler/bin/wrangler.js deploy
 ```
 
+预发 API：
+
+```bash
+cd apps/api
+pnpm dlx node@22 node_modules/wrangler/bin/wrangler.js deploy \
+  --config wrangler.staging.jsonc
+```
+
 构建并部署学生 Web：
 
 ```bash
-cd ../mobile
+cd apps/mobile
 flutter build web --release \
-  --dart-define=API_BASE_URL=https://fstudy-api.a07450865.workers.dev
+  --dart-define=API_BASE_URL=https://fstudy-api.usfese.cc
 cd ../api
 pnpm dlx node@22 node_modules/wrangler/bin/wrangler.js deploy \
   --config ../mobile/wrangler.jsonc
 ```
 
-部署管理台：
+构建并部署预发 Web：
 
 ```bash
-pnpm dlx node@22 node_modules/wrangler/bin/wrangler.js pages deploy \
-  ../admin --project-name fstudy-admin --branch main
+cd apps/mobile
+flutter build web --release --output build/web-staging \
+  --dart-define=API_BASE_URL=https://fstudy-api-staging.usfese.cc
+cd ../api
+pnpm dlx node@22 node_modules/wrangler/bin/wrangler.js deploy \
+  --config ../mobile/wrangler.staging.jsonc
 ```
 
-部署前请确认 `ALLOWED_ORIGINS` 覆盖实际前端域名，并且没有使用开发环境密钥或占位 D1 配置。
+部署管理台（在仓库根目录执行）：
+
+```bash
+pnpm dlx node@22 apps/api/node_modules/wrangler/bin/wrangler.js deploy \
+  --config wrangler.admin.jsonc
+```
+
+部署前请确认 `ALLOWED_ORIGINS` 覆盖实际前端域名，并且没有使用开发环境密钥或占位 D1 配置。自定义域名通过各 `wrangler.jsonc` 的 `routes`（`custom_domain: true`）绑定，证书由 Cloudflare 自动签发。部署管理台前还需确认本地 `apps/admin/config.js` 中的 `FSTUDY_API_URL` 指向生产 API；该文件不提交到 Git。
 
 ### Android
 

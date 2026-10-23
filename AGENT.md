@@ -263,15 +263,15 @@ When a test or build fails, identify the actual root cause before changing code.
 
 The intended production backend is Cloudflare Workers + D1 using the same backend business code.
 
-Production was deployed on 2026-10-22:
+Initial production deployment was on 2026-10-22; public endpoints moved to `usfese.cc` custom domains on 2026-10-23:
 
-- API: `https://fstudy-api.a07450865.workers.dev` (Worker `fstudy-api`, D1 `fstudy`).
-- Student Web: `https://fstudy-web.a07450865.workers.dev` (Workers static assets, SPA fallback).
-- Admin console: `https://fstudy-admin.pages.dev` (Pages, `config.js` points to the production API).
+- API: `https://fstudy-api.usfese.cc` (Worker `fstudy-api`, D1 `fstudy`).
+- Student Web: `https://fstudy.usfese.cc` (Workers static assets, SPA fallback).
+- Admin console: `https://fstudy-admin.usfese.cc` (Worker `fstudy-admin` static assets; `config.js` points to the production API).
 - Migrations `0001`–`0015` applied to both staging and production.
 - `INVITE_REGISTRATION_ENABLED=true`; every registration still needs an invite code.
 - Production admin credentials are stored outside the repository at `~/.fstudy/production-admin.txt` (mode 0600). Change the bootstrap password after first login.
-- The `fstudy-student` Pages project exists but is unused: direct Pages uploads repeatedly failed at `upsert-hashes`. Deploy the student Web with `apps/mobile/wrangler.jsonc` instead.
+- The `fstudy-student` Pages project and legacy `*.workers.dev` / `*.pages.dev` hostnames are unused by the current deployment. Public endpoints use `usfese.cc` custom domains; keep legacy hostnames only as rollback references.
 
 Rebuild/redeploy steps (use Node 22 for Wrangler; Node 26 hangs on some Cloudflare API calls):
 
@@ -279,10 +279,14 @@ Rebuild/redeploy steps (use Node 22 for Wrangler; Node 26 hangs on some Cloudfla
 cd apps/api
 pnpm dlx node@22 node_modules/wrangler/bin/wrangler.js deploy
 cd ../mobile
-flutter build web --release --dart-define=API_BASE_URL=https://fstudy-api.a07450865.workers.dev
+flutter build web --release --dart-define=API_BASE_URL=https://fstudy-api.usfese.cc
 cd ../api
 pnpm dlx node@22 node_modules/wrangler/bin/wrangler.js deploy --config ../mobile/wrangler.jsonc
+cd ../..
+pnpm dlx node@22 apps/api/node_modules/wrangler/bin/wrangler.js deploy --config wrangler.admin.jsonc
 ```
+
+Custom domains are bound through `routes` (`custom_domain: true`) in `apps/api/wrangler.jsonc`, `apps/api/wrangler.staging.jsonc`, `apps/mobile/wrangler.jsonc`, `apps/mobile/wrangler.staging.jsonc`, and `wrangler.admin.jsonc`. Cloudflare manages DNS and certificates for hostnames in `usfese.cc`.
 
 Never deploy with the development pepper, placeholder D1 ID, debug Android signing, or without `ALLOWED_ORIGINS` covering the deployed Web origin.
 
@@ -294,7 +298,7 @@ Read this section before continuing. It supersedes earlier handoff text about ca
 
 - Migration `0015_usernames.sql` adds `users.username`, backfills legacy accounts, and creates a unique index. `student_identities` remains as a reserved table. It has **not** been applied to remote staging or production.
 - Android release signing is configured from `apps/mobile/android/key.properties` with a debug fallback; `key.properties` and keystores are git-ignored.
-- Production config `apps/api/wrangler.jsonc` is still a template (placeholder D1 ID and origin). No production deploy has been performed.
+- Production config `apps/api/wrangler.jsonc` has been deployed to Cloudflare; treat changes to D1 IDs, origins, or routes as production changes. See the Production section.
 - Verification after the username change: API `pnpm check`, `pnpm test` (34 tests), `pnpm build`, `pnpm knowledge:check`; admin `node --test tests/admin.test.mjs` (5 tests); Flutter `dart format`, `flutter analyze`, `flutter test` (39 tests), `flutter build web --release`.
 
 ### Identity model (ADR-021, ADR-023)
@@ -303,17 +307,17 @@ Read this section before continuing. It supersedes earlier handoff text about ca
 - Login uses username (case-insensitive) + app password. `student_identities` is not written for new accounts.
 - Invite codes: each user may generate 5 per Asia/Shanghai calendar month (`/v1/me/invites`). Operators generate codes with `/v1/admin/invites`, which do not count against any user.
 - Invite codes: each user may generate 5 per Asia/Shanghai calendar month (`/v1/me/invites`). Operators generate codes with `/v1/admin/invites`, which do not count against any user.
-- `INVITE_REGISTRATION_ENABLED`: `true` in `wrangler.staging.jsonc`. Not set in `wrangler.jsonc` (production), so production registration is closed.
+- `INVITE_REGISTRATION_ENABLED`: `true` in both `wrangler.staging.jsonc` and `wrangler.jsonc`; registration still requires an invite code.
 - School verification code (captcha, school-password challenge, `verify`) is commented out with a `[2026-10-14 已停用]` marker. Browser CAS login code remains and stays disabled (`CAS_LOGIN_ENABLED=false`).
 - Identity expiry is no longer relevant: new accounts have no `student_identities` row (ADR-022, ADR-023). Usernames are self-declared and unverified; reassess identity trust before public launch.
 
 ### Staging environment (Cloudflare)
 
 - The Wrangler account is the user's personal account. Do not print secrets or paste them into chat.
-- Student Pages: `https://fstudy-student-staging.pages.dev`
-- API Worker: `https://fstudy-api-staging.a07450865.workers.dev`
+- Student Web: `https://fstudy-staging.usfese.cc` (Worker `fstudy-staging` static assets)
+- API Worker: `https://fstudy-api-staging.usfese.cc`
 - D1 database: `fstudy-staging`; its ID is in `apps/api/wrangler.staging.jsonc`.
-- Production config `apps/api/wrangler.jsonc` stays unchanged, with placeholder D1 ID and origin. Never deploy it without approval.
+- Production config `apps/api/wrangler.jsonc` is deployed; review secrets, D1 ID, origins, and routes before changing it.
 - `STUDENT_ID_PEPPER` is a Wrangler secret. `CAS_STATE_ENCRYPTION_KEY` is no longer read by the code. Never list or output secret contents.
 - D1 remote migration history reached `0014` on staging; `0015` is pending. Always check remote history and schema before any further migration.
 

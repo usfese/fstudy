@@ -23,10 +23,19 @@ pnpm admin:dev
 部署时，若管理前端与 API 不同源，复制 `config.example.js` 为 `config.js`（已在 `.gitignore` 中）并设置：
 
 ```js
-window.FSTUDY_API_URL = 'https://api.example.com';
+window.FSTUDY_API_URL = 'https://fstudy-api.usfese.cc';
 ```
 
-`index.html` 会在模块脚本之前加载 `/config.js`；文件不存在时回退到本地默认地址。同时需在 API 的 `ALLOWED_ORIGINS` 中加入管理台域名。
+`index.html` 会在模块脚本之前加载 `/config.js`；文件不存在时回退到当前主机的 `8787` 端口。同时需在 API 的 `ALLOWED_ORIGINS` 中加入管理台域名。部署生产管理台前，请确认本地 `apps/admin/config.js` 存在并指向 `https://fstudy-api.usfese.cc`；该文件不提交到 Git。
+
+生产管理台由 Cloudflare Worker `fstudy-admin` 提供静态资源，自定义域名为 `https://fstudy-admin.usfese.cc`。在仓库根目录部署：
+
+```bash
+pnpm dlx node@22 apps/api/node_modules/wrangler/bin/wrangler.js deploy \
+  --config wrangler.admin.jsonc
+```
+
+根目录的 `wrangler.admin.jsonc` 使用 `assets.directory=./apps/admin` 与 `not_found_handling=single-page-application`，并通过 `routes` 的 `custom_domain: true` 绑定域名。Worker 配置位于静态目录之外，不会作为静态文件发布。
 
 ## 与 API 的交互
 

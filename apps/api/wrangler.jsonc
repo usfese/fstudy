@@ -3,12 +3,18 @@
   "name": "fstudy-api",
   "main": "src/entrypoints/worker.ts",
   "compatibility_date": "2026-10-01",
-  "workers_dev": true,
+  "workers_dev": false,
   "preview_urls": false,
+  "routes": [
+    {
+      "pattern": "fstudy-api.usfese.cc",
+      "custom_domain": true
+    }
+  ],
   "vars": {
     "INVITE_REGISTRATION_ENABLED": "true",
     "CAS_LOGIN_ENABLED": "false",
-    "ALLOWED_ORIGINS": "https://fstudy-web.a07450865.workers.dev,https://fstudy-admin.pages.dev"
+    "ALLOWED_ORIGINS": "https://fstudy.usfese.cc,https://fstudy-admin.usfese.cc"
   },
   "d1_databases": [
     {
