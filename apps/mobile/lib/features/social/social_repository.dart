@@ -1,6 +1,9 @@
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 
+import '../../core/cache/cached_api.dart';
+import '../../core/cache/client_cache.dart';
+
 const _configuredApiUrl = String.fromEnvironment('API_BASE_URL');
 
 String get _defaultApiUrl =>
@@ -215,8 +218,8 @@ abstract interface class SocialRepository {
   Future<void> respondToAvailabilityInvite(String inviteId, String action);
 }
 
-class DioSocialRepository implements SocialRepository {
-  DioSocialRepository({required String accessToken, Dio? dio})
+class DioSocialRepository with CachedApi implements SocialRepository {
+  DioSocialRepository({required String accessToken, Dio? dio, this.cache})
     : _dio =
           dio ??
           Dio(
@@ -234,14 +237,16 @@ class DioSocialRepository implements SocialRepository {
           );
 
   final Dio _dio;
+  @override
+  final ClientCache? cache;
 
   @override
   Future<List<SocialTag>> listAvailableTags() async =>
-      _tags(await _get('/v1/tags'));
+      _tags(await _get('/v1/tags', ttl: const Duration(minutes: 5)));
 
   @override
   Future<List<SocialTag>> listMyTags() async =>
-      _tags(await _get('/v1/me/tags'));
+      _tags(await _get('/v1/me/tags', ttl: const Duration(minutes: 5)));
 
   @override
   Future<SocialTag> createTag({
@@ -254,6 +259,7 @@ class DioSocialRepository implements SocialRepository {
         data: {'name': name, 'category': category},
       ),
     );
+    await invalidateCache('/v1/tags');
     return SocialTag.fromJson(data['tag'] as Map<String, dynamic>);
   }
 
@@ -276,6 +282,8 @@ class DioSocialRepository implements SocialRepository {
         },
       ),
     );
+    await invalidateCache('/v1/me/tags');
+    await invalidateCache('/v1/discover');
   }
 
   @override
@@ -294,6 +302,8 @@ class DioSocialRepository implements SocialRepository {
         data: {'targetUserId': targetUserId},
       ),
     );
+    await invalidateCache('/v1/discover');
+    await invalidateCache('/v1/friends');
   }
 
   @override
@@ -326,6 +336,8 @@ class DioSocialRepository implements SocialRepository {
         data: {'action': action},
       ),
     );
+    await invalidateCache('/v1/friends');
+    await invalidateCache('/v1/discover');
   }
 
   @override
@@ -336,19 +348,19 @@ class DioSocialRepository implements SocialRepository {
     required int dayStartMinute,
     required int dayEndMinute,
   }) async {
-    final data = await _request(
-      () => _dio.get<Map<String, dynamic>>(
-        '/v1/availability',
-        queryParameters: {
-          'friendId': friendId,
-          'date':
-              '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}',
-          'weekNumber': weekNumber,
-          'dayStartMinute': dayStartMinute,
-          'dayEndMinute': dayEndMinute,
-          'timezoneOffsetMinutes': date.timeZoneOffset.inMinutes,
-        },
-      ),
+    final query = {
+      'friendId': friendId,
+      'date':
+          '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}',
+      'weekNumber': weekNumber,
+      'dayStartMinute': dayStartMinute,
+      'dayEndMinute': dayEndMinute,
+      'timezoneOffsetMinutes': date.timeZoneOffset.inMinutes,
+    };
+    final data = await _get(
+      '/v1/availability',
+      query: query,
+      ttl: const Duration(minutes: 2),
     );
     return (data['freeSlots'] as List)
         .map((slot) => FreeSlot.fromJson(slot as Map<String, dynamic>))
@@ -384,6 +396,7 @@ class DioSocialRepository implements SocialRepository {
         },
       ),
     );
+    await invalidateCache('/v1/availability-invites');
   }
 
   @override
@@ -397,14 +410,25 @@ class DioSocialRepository implements SocialRepository {
         data: {'action': action},
       ),
     );
+    await invalidateCache('/v1/availability-invites');
   }
 
   List<SocialTag> _tags(Map<String, dynamic> data) => (data['tags'] as List)
       .map((tag) => SocialTag.fromJson(tag as Map<String, dynamic>))
       .toList();
 
-  Future<Map<String, dynamic>> _get(String path) =>
-      _request(() => _dio.get<Map<String, dynamic>>(path));
+  Future<Map<String, dynamic>> _get(
+    String path, {
+    Map<String, Object?>? query,
+    Duration ttl = const Duration(seconds: 30),
+  }) => cachedGet(
+    path,
+    () => _request(
+      () => _dio.get<Map<String, dynamic>>(path, queryParameters: query),
+    ),
+    query: query,
+    ttl: ttl,
+  );
 
   Future<Map<String, dynamic>> _request(
     Future<Response<Map<String, dynamic>>> Function() request,

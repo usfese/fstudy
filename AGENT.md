@@ -113,6 +113,9 @@ After a change, update the affected knowledge doc in the same change, and record
 
 - UI depends on repository interfaces, not directly on Dio.
 - Construct production Dio repositories at the app composition boundary.
+- Read repositories use `ClientCache` stale-while-revalidate: return cached data immediately, refresh in the background, and notify `cacheChanges` when the cloud result differs.
+- Pages that read cached lists must mix in `CacheRefreshMixin` and keep the previous data visible while the replacement future runs. Mutations must invalidate the affected cache paths.
+- Clear the per-account cache on logout and on a 401 from background session validation. Never share cache keys across accounts.
 - Inject fake repositories in widget tests; tests must not make real network requests.
 - Use `go_router` for top-level navigation and browser URLs.
 - Current top-level routes are `/login`, `/notifications`, and a shell with branches `/`, `/schedule`, `/map`, `/assignments`, `/plans`, `/discover` (`friends`, `availability`), `/community`, `/profile` (`tags`, `about`). `/projects` redirects to `/community?tab=teams`. Details: `docs/knowledge/apps/mobile/lib/README.md`.

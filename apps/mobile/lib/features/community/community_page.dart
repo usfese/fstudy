@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../core/cache/cache_refresh_mixin.dart';
+
 import '../projects/project_repository.dart';
 import '../projects/projects_page.dart';
 import 'forum_repository.dart';
@@ -51,7 +53,8 @@ class ForumPage extends StatefulWidget {
   State<ForumPage> createState() => _ForumPageState();
 }
 
-class _ForumPageState extends State<ForumPage> {
+class _ForumPageState extends State<ForumPage>
+    with CacheRefreshMixin<ForumPage> {
   late Future<List<ForumPost>> _posts;
   String? _category;
 
@@ -65,7 +68,17 @@ class _ForumPageState extends State<ForumPage> {
     _posts = widget.repository.listPosts(category: _category);
   }
 
-  void _refresh() => setState(_reload);
+  void _refresh() => setState(() {
+    _reload();
+  });
+
+  @override
+  Object? get cacheSource => widget.repository;
+
+  @override
+  void reloadFromCache() => setState(() {
+    _reload();
+  });
 
   Future<void> _createPost() async {
     final created = await showDialog<bool>(
@@ -138,7 +151,8 @@ class _ForumPageState extends State<ForumPage> {
           FutureBuilder<List<ForumPost>>(
             future: _posts,
             builder: (context, snapshot) {
-              if (snapshot.connectionState != ConnectionState.done) {
+              if (snapshot.connectionState != ConnectionState.done &&
+                  !snapshot.hasData) {
                 return const Center(child: CircularProgressIndicator());
               }
               if (snapshot.hasError) return const Text('讨论加载失败');
@@ -295,7 +309,8 @@ class _ThreadDialog extends StatefulWidget {
   State<_ThreadDialog> createState() => _ThreadDialogState();
 }
 
-class _ThreadDialogState extends State<_ThreadDialog> {
+class _ThreadDialogState extends State<_ThreadDialog>
+    with CacheRefreshMixin<_ThreadDialog> {
   late Future<ForumThread> _thread;
   String _reply = '';
   bool _saving = false;
@@ -328,6 +343,14 @@ class _ThreadDialogState extends State<_ThreadDialog> {
   void initState() {
     super.initState();
     _thread = widget.repository.getThread(widget.postId);
+  }
+
+  @override
+  Object? get cacheSource => widget.repository;
+
+  @override
+  void reloadFromCache() {
+    setState(() => _thread = widget.repository.getThread(widget.postId));
   }
 
   Future<void> _send() async {

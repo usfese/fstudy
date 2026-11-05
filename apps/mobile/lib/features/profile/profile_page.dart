@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../core/cache/cache_refresh_mixin.dart';
+
 import 'profile_repository.dart';
 
 class ProfilePage extends StatefulWidget {
@@ -20,7 +22,8 @@ class ProfilePage extends StatefulWidget {
   State<ProfilePage> createState() => _ProfilePageState();
 }
 
-class _ProfilePageState extends State<ProfilePage> {
+class _ProfilePageState extends State<ProfilePage>
+    with CacheRefreshMixin<ProfilePage> {
   late Future<UserProfile> _profile;
   final _form = GlobalKey<FormState>();
   final _displayName = TextEditingController();
@@ -35,6 +38,14 @@ class _ProfilePageState extends State<ProfilePage> {
   void initState() {
     super.initState();
     _profile = widget.repository.getProfile();
+  }
+
+  @override
+  Object? get cacheSource => widget.repository;
+
+  @override
+  void reloadFromCache() {
+    setState(() => _profile = widget.repository.getProfile());
   }
 
   @override
@@ -91,7 +102,8 @@ class _ProfilePageState extends State<ProfilePage> {
     return FutureBuilder<UserProfile>(
       future: _profile,
       builder: (context, snapshot) {
-        if (snapshot.connectionState != ConnectionState.done) {
+        if (snapshot.connectionState != ConnectionState.done &&
+            !snapshot.hasData) {
           return const Center(child: CircularProgressIndicator());
         }
         if (snapshot.hasError) {
@@ -286,7 +298,8 @@ class _InviteCard extends StatefulWidget {
   State<_InviteCard> createState() => _InviteCardState();
 }
 
-class _InviteCardState extends State<_InviteCard> {
+class _InviteCardState extends State<_InviteCard>
+    with CacheRefreshMixin<_InviteCard> {
   InviteOverview? _overview;
   String? _error;
   bool _creating = false;
@@ -296,6 +309,12 @@ class _InviteCardState extends State<_InviteCard> {
     super.initState();
     _load();
   }
+
+  @override
+  Object? get cacheSource => widget.repository;
+
+  @override
+  void reloadFromCache() => _load();
 
   Future<void> _load() async {
     try {

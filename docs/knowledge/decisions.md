@@ -32,6 +32,7 @@
 | ADR-024 | Android 发布采用 tag 驱动的 GitHub Actions，仅分发 APK | 生效 | release, tag, Android, signing, GitHub Actions |
 | ADR-019 | 好友课表可见级别（四级） | 生效 | schedule_visibility, friendBlocks, privacy |
 | ADR-020 | 保留预留依赖（本地通知、riverpod、drift） | 生效 | Android, notification, dependency |
+| ADR-025 | 客户端按账号缓存 GET 响应，先显示本地再后台同步 | 生效 | cache, stale-while-revalidate, offline, startup |
 
 ---
 
@@ -265,4 +266,17 @@
 - **理由**：GitHub Release 是当前唯一分发渠道；tag 驱动可保证版本、构建号和产物一一对应，避免手工构建造成版本漂移或误发 debug 包。
 - **影响**：每次发布必须先更新 `pubspec.yaml` 与 `CHANGELOG.md`，合并后再打 tag；已发布 tag 不应删除或复用。keystore 丢失将导致无法更新已安装应用，必须保留离线备份。
 - **依据**：用户决定（2026-10-23）；`.github/workflows/release.yml`；`.github/workflows/ci.yml`；`apps/mobile/android/app/build.gradle.kts`；`CONTRIBUTING.md`。
+
+## ADR-025：客户端按账号缓存 GET 响应，先显示本地再后台同步
+
+- **状态**：生效（2026-11-05）
+- **决策**：
+  1. Flutter 客户端在 `apps/mobile/lib/core/cache/` 实现 `ClientCache`。缓存按账号隔离（`fstudy_cache_v1_<userId>`），保存原始 GET 响应和写入时间，持久化在 `flutter_secure_storage`。
+  2. 所有 `Dio*Repository` 的 GET 读取通过 `CachedApi.cachedGet`：命中缓存立即返回；超过 TTL 时在后台请求云端。云端 JSON 与缓存不同才写入并通知 `cacheChanges`；相同则不通知。
+  3. TTL 默认 30 秒；标签 5 分钟、共同空闲 2 分钟、通知 10 秒。写操作成功后按路径失效缓存。
+  4. 页面通过 `CacheRefreshMixin` 订阅通知并重载；`FutureBuilder` 在已有数据时保留旧内容，不用加载圈替换。后台刷新失败静默保留缓存。
+  5. 启动时若有 `fstudy_access_user` 快照，`restoreSession()` 立即返回缓存会话，再后台请求 `GET /v1/me` 校验；401 通过 `sessionChanges` 推送 `null`。退出登录或 401 时清空该账号缓存，`clear()` 之后的在途写入丢弃。
+- **理由**：用户反馈每次进入客户端和打开课表等页面都要等待网络。缓存让首帧直接使用上次数据，后台同步保证最终一致；同时改善部署窗口和弱网下的可用性。
+- **影响**：页面可能在 TTL 内短暂显示旧数据；跨设备变更要等下一次读取触发刷新。缓存不是写入队列，写操作仍需网络，失败时不清空旧数据。缓存内容包含课表、作业、安排、好友与通知摘要，按账号隔离并随退出清除。
+- **依据**：用户决定（2026-11-05）；`apps/mobile/lib/core/cache/`；`apps/mobile/lib/app.dart`；`apps/mobile/lib/features/auth/auth_repository.dart`；`apps/mobile/test/client_cache_test.dart`；`apps/mobile/test/auth_repository_test.dart`。
 

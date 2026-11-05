@@ -4,6 +4,15 @@
 
 > 接口路径以 [apps/api/src/http/README.md](../../../api/src/http/README.md) 为准。仓库方法名以源码为准。
 
+## 读取缓存
+
+所有 `Dio*Repository` 的 GET 读取都通过 `CachedApi.cachedGet`（见 `lib/core/cache/`）：
+
+- 先返回本地缓存，再按 TTL 在后台刷新；云端结果不同才通知页面重载。
+- 写操作成功后失效对应路径，页面仍按 `AGENT.md` 要求立即重载。
+- 缓存按账号隔离，退出登录或 401 时清空。
+- 详情与 TTL 见 [lib/README.md](../README.md)「本地缓存与后台刷新」。
+
 ## 功能总览
 
 | 目录 | 页面 | 仓库 | 调用的接口 |
@@ -38,7 +47,7 @@
 
 | 方法 | 接口 | 说明 |
 | --- | --- | --- |
-| `restoreSession()` | `GET /v1/me`（带令牌） | 读取 `fstudy_access_token` 与 `fstudy_access_user`；校验成功后刷新用户快照。仅服务端明确返回 401 时清除本地会话；网络错误或 5xx 时返回缓存会话，避免部署/更新期间丢失登录状态 |
+| `restoreSession()` | `GET /v1/me`（带令牌） | 读取 `fstudy_access_token` 与 `fstudy_access_user`；有快照时**立即返回缓存会话**，再后台校验并刷新用户快照。仅服务端明确返回 401 时清除本地会话并通过 `sessionChanges` 推送 `null`；网络错误或 5xx 时保留缓存会话，避免部署/更新期间丢失登录状态 |
 | `login({username, appPassword})` | `POST /v1/auth/login` | 成功后保存令牌与用户快照；用户名不区分大小写 |
 | `register({username, email, appPassword, departmentId, inviteCode})` | `POST /v1/auth/register` | 邀请码注册；用户名或邮箱重复 409，邀请码无效 403，注册关闭 403 |
 | `startBrowserCas()` | `POST /v1/auth/cas/start` | 取得 `authorizationUrl` 并跳转；当前关闭 |
@@ -166,7 +175,7 @@ API 地址：`String.fromEnvironment('API_BASE_URL')`，默认 Web `http://127.0
 
 ## 测试覆盖
 
-`apps/mobile/test/widget_test.dart` 包含 41 个组件/行为测试，`apps/mobile/test/class_periods_test.dart` 包含 4 个固定节次与短期输入记忆单元测试，`apps/mobile/test/auth_repository_test.dart` 包含 6 个会话持久化单元测试。测试使用假仓库或假 Dio 适配器，不发起真实网络请求。测试名称覆盖了以下流程：
+`apps/mobile/test/widget_test.dart` 包含 43 个组件/行为测试，`apps/mobile/test/class_periods_test.dart` 包含 4 个固定节次与短期输入记忆单元测试，`apps/mobile/test/auth_repository_test.dart` 包含 8 个会话持久化单元测试，`apps/mobile/test/client_cache_test.dart` 包含 6 个缓存单元测试。测试使用假仓库或假 Dio 适配器，不发起真实网络请求。测试名称覆盖了以下流程：
 
 - 未登录时显示登录页，退出登录后返回登录页
 - 深色模式设置、通知铃铛打开收件箱并标记已读
@@ -180,7 +189,8 @@ API 地址：`String.fromEnvironment('API_BASE_URL')`，默认 Web `http://127.0
 - 论坛发帖、公开回复、举报帖子；讨论区不再显示私人联系方式提示
 - 注册时填写邮箱与邀请码并提交（`registration asks for an email and an invite code`）
 - 个人页生成邀请码并显示剩余额度（`profile can generate an invite code and shows the remaining quota`）
-- 登录会话持久化：登录写入令牌与用户快照；网络中断时保留缓存登录；仅 401 清除本地会话；登出清除本地文件
+- 登录会话持久化：登录写入令牌与用户快照；有快照时立即进入应用并在后台校验；网络中断时保留缓存登录；后台 401 清除本地会话；登出清除本地文件
+- 本地缓存：缓存跨实例持久化、按账号隔离、路径失效；缓存先返回并在后台刷新，云端变化触发页面更新；刷新失败保留旧数据
 
 ## 待确认
 

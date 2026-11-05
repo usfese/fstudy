@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../core/cache/cache_refresh_mixin.dart';
+
 import 'academic_repository.dart';
 import 'recent_inputs.dart';
 
@@ -11,7 +13,8 @@ class AssignmentsPage extends StatefulWidget {
   State<AssignmentsPage> createState() => _AssignmentsPageState();
 }
 
-class _AssignmentsPageState extends State<AssignmentsPage> {
+class _AssignmentsPageState extends State<AssignmentsPage>
+    with CacheRefreshMixin<AssignmentsPage> {
   late Future<({List<Assignment> assignments, List<Course> courses})> _data;
 
   @override
@@ -32,6 +35,14 @@ class _AssignmentsPageState extends State<AssignmentsPage> {
           ),
         );
   }
+
+  @override
+  Object? get cacheSource => widget.repository;
+
+  @override
+  void reloadFromCache() => setState(() {
+    _reload();
+  });
 
   Future<void> _add() async {
     final data = await _data;
@@ -137,7 +148,8 @@ class _AssignmentsPageState extends State<AssignmentsPage> {
           FutureBuilder<({List<Assignment> assignments, List<Course> courses})>(
             future: _data,
             builder: (context, snapshot) {
-              if (snapshot.connectionState != ConnectionState.done) {
+              if (snapshot.connectionState != ConnectionState.done &&
+                  !snapshot.hasData) {
                 return const Center(child: CircularProgressIndicator());
               }
               if (snapshot.hasError) {

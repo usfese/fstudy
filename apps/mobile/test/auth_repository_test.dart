@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
@@ -119,7 +120,7 @@ void main() {
       },
     );
 
-    test('restoreSession returns null and clears storage on 401', () async {
+    test('restoreSession returns cached login before validation and clears it on 401', () async {
       final storage = _MemoryAuthStorage()
         ..values['fstudy_access_token'] = 'expired-token'
         ..values['fstudy_access_user'] = jsonEncode(_user('过期同学'));
@@ -131,10 +132,13 @@ void main() {
           }, 401),
         ),
       );
+      final event = repository.sessionChanges.first;
 
       final session = await repository.restoreSession();
 
-      expect(session, isNull);
+      expect(session, isNotNull);
+      expect(session!.user.displayName, '过期同学');
+      expect(await event, isNull);
       expect(storage.values, isEmpty);
     });
 
@@ -146,15 +150,59 @@ void main() {
         storage,
         _FakeAdapter((options) async => _json({'user': _user('新名字')}, 200)),
       );
+      final event = repository.sessionChanges.first;
 
       final session = await repository.restoreSession();
 
-      expect(session!.user.displayName, '新名字');
+      expect(session!.user.displayName, '旧名字');
+      final updated = await event;
+      expect(updated!.user.displayName, '新名字');
       final cached = jsonDecode(
         storage.values['fstudy_access_user']!,
       ) as Map<String, dynamic>;
       expect(cached['displayName'], '新名字');
       expect(storage.values['fstudy_access_token'], 'token-1');
+    });
+
+    test('restoreSession does not wait for the validation request', () async {
+      final storage = _MemoryAuthStorage()
+        ..values['fstudy_access_token'] = 'token-1'
+        ..values['fstudy_access_user'] = jsonEncode(_user('缓存同学'));
+      final response = Completer<ResponseBody>();
+      final repository = _repository(
+        storage,
+        _FakeAdapter((options) => response.future),
+      );
+
+      final session = await repository.restoreSession();
+
+      expect(session!.user.displayName, '缓存同学');
+      response.complete(_json({'user': _user('缓存同学')}, 200));
+      await pumpEventQueue();
+    });
+
+    test('logout wins over an in-flight background validation', () async {
+      final storage = _MemoryAuthStorage()
+        ..values['fstudy_access_token'] = 'token-1'
+        ..values['fstudy_access_user'] = jsonEncode(_user('缓存同学'));
+      final me = Completer<ResponseBody>();
+      final repository = _repository(
+        storage,
+        _FakeAdapter((options) {
+          if (options.path == '/v1/me') return me.future;
+          return Future.value(_json(const <String, dynamic>{}, 200));
+        }),
+      );
+
+      final session = await repository.restoreSession();
+      expect(session, isNotNull);
+      await pumpEventQueue();
+
+      await repository.logout();
+      me.complete(_json({'user': _user('迟到的同学')}, 200));
+      await pumpEventQueue();
+
+      expect(storage.values, isEmpty);
     });
 
     test(

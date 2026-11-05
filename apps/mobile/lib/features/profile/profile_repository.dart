@@ -1,6 +1,9 @@
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 
+import '../../core/cache/cached_api.dart';
+import '../../core/cache/client_cache.dart';
+
 const _configuredApiUrl = String.fromEnvironment('API_BASE_URL');
 
 String get _defaultApiUrl =>
@@ -69,8 +72,8 @@ abstract interface class ProfileRepository {
   Future<IssuedInvite> createInvite();
 }
 
-class DioProfileRepository implements ProfileRepository {
-  DioProfileRepository({required String accessToken, Dio? dio})
+class DioProfileRepository with CachedApi implements ProfileRepository {
+  DioProfileRepository({required String accessToken, Dio? dio, this.cache})
     : _dio =
           dio ??
           Dio(
@@ -88,10 +91,15 @@ class DioProfileRepository implements ProfileRepository {
           );
 
   final Dio _dio;
+  @override
+  final ClientCache? cache;
 
   @override
   Future<UserProfile> getProfile() async {
-    final data = await _request(() => _dio.get<Map<String, dynamic>>('/v1/me'));
+    final data = await cachedGet(
+      '/v1/me',
+      () => _request(() => _dio.get<Map<String, dynamic>>('/v1/me')),
+    );
     return UserProfile.fromJson(data['user'] as Map<String, dynamic>);
   }
 
@@ -109,13 +117,15 @@ class DioProfileRepository implements ProfileRepository {
         },
       ),
     );
+    await storeCached('/v1/me', data);
     return UserProfile.fromJson(data['user'] as Map<String, dynamic>);
   }
 
   @override
   Future<InviteOverview> getInvites() async {
-    final data = await _request(
-      () => _dio.get<Map<String, dynamic>>('/v1/me/invites'),
+    final data = await cachedGet(
+      '/v1/me/invites',
+      () => _request(() => _dio.get<Map<String, dynamic>>('/v1/me/invites')),
     );
     return InviteOverview.fromJson(data);
   }
@@ -125,6 +135,7 @@ class DioProfileRepository implements ProfileRepository {
     final data = await _request(
       () => _dio.post<Map<String, dynamic>>('/v1/me/invites', data: const {}),
     );
+    await invalidateCache('/v1/me/invites');
     return IssuedInvite.fromJson(data);
   }
 

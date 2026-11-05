@@ -1,8 +1,12 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/semantics.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:go_router/go_router.dart';
 
+import 'core/cache/cached_api.dart';
+import 'core/cache/client_cache.dart';
 import 'features/about/about_page.dart';
 import 'features/academic/academic_repository.dart';
 import 'features/academic/assignments_page.dart';
@@ -71,6 +75,11 @@ class _FStudyAppState extends State<FStudyApp> {
   ProjectRepository? _projectRepository;
   ForumRepository? _forumRepository;
   NotificationRepository? _notificationRepository;
+  ClientCache? _clientCache;
+  Listenable? _notificationCacheListenable;
+  late final VoidCallback _onNotificationCacheChanged =
+      _refreshUnreadNotificationCount;
+  StreamSubscription<AuthSession?>? _sessionSubscription;
   bool _restoring = true;
   int _unreadNotificationCount = 0;
   late final GoRouter _router;
@@ -242,6 +251,9 @@ class _FStudyAppState extends State<FStudyApp> {
         return null;
       },
     );
+    _sessionSubscription = widget.repository.sessionChanges.listen(
+      _onSessionChanged,
+    );
     _restoreThemeMode();
     _restoreSession();
   }
@@ -282,37 +294,91 @@ class _FStudyAppState extends State<FStudyApp> {
   }
 
   void _setSession(AuthSession? session) {
+    final previousToken = _session?.accessToken;
     _session = session;
-    if (session == null) _unreadNotificationCount = 0;
-    _academicRepository = session == null
-        ? null
-        : widget.academicRepositoryFactory?.call(session) ??
-              DioAcademicRepository(accessToken: session.accessToken);
-    _planRepository = session == null
-        ? null
-        : widget.planRepositoryFactory?.call(session) ??
-              DioPlanRepository(accessToken: session.accessToken);
-    _profileRepository = session == null
-        ? null
-        : widget.profileRepositoryFactory?.call(session) ??
-              DioProfileRepository(accessToken: session.accessToken);
-    _socialRepository = session == null
-        ? null
-        : widget.socialRepositoryFactory?.call(session) ??
-              DioSocialRepository(accessToken: session.accessToken);
-    _projectRepository = session == null
-        ? null
-        : widget.projectRepositoryFactory?.call(session) ??
-              DioProjectRepository(accessToken: session.accessToken);
-    _forumRepository = session == null
-        ? null
-        : widget.forumRepositoryFactory?.call(session) ??
-              DioForumRepository(accessToken: session.accessToken);
-    _notificationRepository = session == null
-        ? null
-        : widget.notificationRepositoryFactory?.call(session) ??
-              DioNotificationRepository(accessToken: session.accessToken);
-    if (_notificationRepository != null) _refreshUnreadNotificationCount();
+    if (session == null) {
+      _unreadNotificationCount = 0;
+      _clientCache = null;
+      _academicRepository = null;
+      _planRepository = null;
+      _profileRepository = null;
+      _socialRepository = null;
+      _projectRepository = null;
+      _forumRepository = null;
+      _notificationRepository = null;
+      _detachNotificationCache();
+      return;
+    }
+
+    // Background validation can refresh the user snapshot without changing
+    // the token; keep the existing repository instances in that case.
+    if (session.accessToken == previousToken && _academicRepository != null) {
+      return;
+    }
+
+    final cache = ClientCache(userId: session.user.id);
+    _clientCache = cache;
+    unawaited(cache.warmUp());
+    _academicRepository =
+        widget.academicRepositoryFactory?.call(session) ??
+        DioAcademicRepository(accessToken: session.accessToken, cache: cache);
+    _planRepository =
+        widget.planRepositoryFactory?.call(session) ??
+        DioPlanRepository(accessToken: session.accessToken, cache: cache);
+    _profileRepository =
+        widget.profileRepositoryFactory?.call(session) ??
+        DioProfileRepository(accessToken: session.accessToken, cache: cache);
+    _socialRepository =
+        widget.socialRepositoryFactory?.call(session) ??
+        DioSocialRepository(accessToken: session.accessToken, cache: cache);
+    _projectRepository =
+        widget.projectRepositoryFactory?.call(session) ??
+        DioProjectRepository(accessToken: session.accessToken, cache: cache);
+    _forumRepository =
+        widget.forumRepositoryFactory?.call(session) ??
+        DioForumRepository(accessToken: session.accessToken, cache: cache);
+    _notificationRepository =
+        widget.notificationRepositoryFactory?.call(session) ??
+        DioNotificationRepository(
+          accessToken: session.accessToken,
+          cache: cache,
+        );
+    _attachNotificationCache();
+    _refreshUnreadNotificationCount();
+  }
+
+  void _attachNotificationCache() {
+    _detachNotificationCache();
+    final repository = _notificationRepository;
+    if (repository is CacheChangeSource) {
+      _notificationCacheListenable =
+          (repository as CacheChangeSource).cacheChanges;
+      _notificationCacheListenable?.addListener(_onNotificationCacheChanged);
+    }
+  }
+
+  void _detachNotificationCache() {
+    _notificationCacheListenable?.removeListener(_onNotificationCacheChanged);
+    _notificationCacheListenable = null;
+  }
+
+  void _onSessionChanged(AuthSession? session) {
+    if (!mounted) return;
+    if (session == null) {
+      if (_session != null) unawaited(_endLocalSession());
+      return;
+    }
+    if (_session == null) return;
+    setState(() => _setSession(session));
+  }
+
+  Future<void> _endLocalSession() async {
+    if (!mounted) return;
+    final cache = _clientCache;
+    setState(() => _setSession(null));
+    _router.go('/login');
+    RecentInputs.clear();
+    await cache?.clear();
   }
 
   Future<void> _refreshUnreadNotificationCount() async {
@@ -337,12 +403,16 @@ class _FStudyAppState extends State<FStudyApp> {
     await widget.repository.logout();
     RecentInputs.clear();
     if (!mounted) return;
+    final cache = _clientCache;
     setState(() => _setSession(null));
     _router.go('/login');
+    await cache?.clear();
   }
 
   @override
   void dispose() {
+    _sessionSubscription?.cancel();
+    _detachNotificationCache();
     _router.dispose();
     _semanticsHandle.dispose();
     super.dispose();

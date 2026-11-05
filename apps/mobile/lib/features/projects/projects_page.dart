@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../core/cache/cache_refresh_mixin.dart';
+
 import 'project_repository.dart';
 
 class ProjectsPage extends StatefulWidget {
@@ -10,7 +12,8 @@ class ProjectsPage extends StatefulWidget {
   State<ProjectsPage> createState() => _ProjectsPageState();
 }
 
-class _ProjectsPageState extends State<ProjectsPage> {
+class _ProjectsPageState extends State<ProjectsPage>
+    with CacheRefreshMixin<ProjectsPage> {
   late Future<List<ProjectTag>> _tags;
   late Future<List<StudyProject>> _projects;
   late Future<List<ProjectApplication>> _applications;
@@ -29,7 +32,20 @@ class _ProjectsPageState extends State<ProjectsPage> {
     _applications = widget.repository.listApplications();
   }
 
-  void _refresh() => setState(_reload);
+  void _refresh() => setState(() {
+    _reload();
+  });
+
+  @override
+  Object? get cacheSource => widget.repository;
+
+  @override
+  void reloadFromCache() {
+    setState(() {
+      _tags = widget.repository.listTags();
+      _reload();
+    });
+  }
 
   Future<void> _create() async {
     final tags = await _tags;
@@ -195,7 +211,8 @@ class _ProjectsPageState extends State<ProjectsPage> {
           FutureBuilder<List<StudyProject>>(
             future: _projects,
             builder: (context, snapshot) {
-              if (snapshot.connectionState != ConnectionState.done) {
+              if (snapshot.connectionState != ConnectionState.done &&
+                  !snapshot.hasData) {
                 return const Center(child: CircularProgressIndicator());
               }
               if (snapshot.hasError) {
@@ -237,7 +254,8 @@ class _ProjectsPageState extends State<ProjectsPage> {
             builder: (context, snapshot) {
               final applications =
                   snapshot.data ?? const <ProjectApplication>[];
-              if (snapshot.connectionState != ConnectionState.done) {
+              if (snapshot.connectionState != ConnectionState.done &&
+                  !snapshot.hasData) {
                 return const Center(child: CircularProgressIndicator());
               }
               if (applications.isEmpty) return const Text('暂无申请记录');

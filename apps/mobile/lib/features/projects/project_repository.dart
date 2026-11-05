@@ -1,6 +1,9 @@
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 
+import '../../core/cache/cached_api.dart';
+import '../../core/cache/client_cache.dart';
+
 const _configuredApiUrl = String.fromEnvironment('API_BASE_URL');
 String get _defaultApiUrl =>
     kIsWeb ? 'http://127.0.0.1:8787' : 'http://10.0.2.2:8787';
@@ -107,8 +110,8 @@ abstract interface class ProjectRepository {
   Future<void> reportProject(String projectId, String reason);
 }
 
-class DioProjectRepository implements ProjectRepository {
-  DioProjectRepository({required String accessToken, Dio? dio})
+class DioProjectRepository with CachedApi implements ProjectRepository {
+  DioProjectRepository({required String accessToken, Dio? dio, this.cache})
     : _dio =
           dio ??
           Dio(
@@ -125,10 +128,12 @@ class DioProjectRepository implements ProjectRepository {
             ),
           );
   final Dio _dio;
+  @override
+  final ClientCache? cache;
 
   @override
   Future<List<ProjectTag>> listTags() async {
-    final data = await _get('/v1/tags');
+    final data = await _get('/v1/tags', ttl: const Duration(minutes: 5));
     return (data['tags'] as List)
         .map((tag) => ProjectTag.fromJson(tag as Map<String, dynamic>))
         .where((tag) => tag.category == 'field' || tag.category == 'goal')
@@ -140,12 +145,8 @@ class DioProjectRepository implements ProjectRepository {
     String? status,
     String? tagId,
   }) async {
-    final data = await _request(
-      () => _dio.get<Map<String, dynamic>>(
-        '/v1/projects',
-        queryParameters: {'status': ?status, 'tagId': ?tagId},
-      ),
-    );
+    final query = <String, Object?>{'status': ?status, 'tagId': ?tagId};
+    final data = await _get('/v1/projects', query: query);
     return (data['projects'] as List)
         .map(
           (project) => StudyProject.fromJson(project as Map<String, dynamic>),
@@ -159,33 +160,44 @@ class DioProjectRepository implements ProjectRepository {
     required String description,
     required int capacity,
     required List<String> tagIds,
-  }) async => _void(
-    () => _dio.post<Map<String, dynamic>>(
-      '/v1/projects',
-      data: {
-        'title': title,
-        'description': description,
-        'capacity': capacity,
-        'tagIds': tagIds,
-      },
-    ),
-  );
+  }) async {
+    await _void(
+      () => _dio.post<Map<String, dynamic>>(
+        '/v1/projects',
+        data: {
+          'title': title,
+          'description': description,
+          'capacity': capacity,
+          'tagIds': tagIds,
+        },
+      ),
+    );
+    await invalidateCache('/v1/projects');
+    await invalidateCache('/v1/project-applications');
+  }
 
   @override
-  Future<void> setProjectStatus(String id, String status) async => _void(
-    () => _dio.patch<Map<String, dynamic>>(
-      '/v1/projects/$id/status',
-      data: {'status': status},
-    ),
-  );
+  Future<void> setProjectStatus(String id, String status) async {
+    await _void(
+      () => _dio.patch<Map<String, dynamic>>(
+        '/v1/projects/$id/status',
+        data: {'status': status},
+      ),
+    );
+    await invalidateCache('/v1/projects');
+  }
 
   @override
-  Future<void> apply(String projectId, String message) async => _void(
-    () => _dio.post<Map<String, dynamic>>(
-      '/v1/projects/$projectId/applications',
-      data: {'message': message},
-    ),
-  );
+  Future<void> apply(String projectId, String message) async {
+    await _void(
+      () => _dio.post<Map<String, dynamic>>(
+        '/v1/projects/$projectId/applications',
+        data: {'message': message},
+      ),
+    );
+    await invalidateCache('/v1/projects');
+    await invalidateCache('/v1/project-applications');
+  }
 
   @override
   Future<List<ProjectApplication>> listApplications() async {
@@ -198,23 +210,44 @@ class DioProjectRepository implements ProjectRepository {
   }
 
   @override
-  Future<void> respond(String applicationId, String action) async => _void(
-    () => _dio.patch<Map<String, dynamic>>(
-      '/v1/project-applications/$applicationId',
-      data: {'action': action},
-    ),
-  );
+  Future<void> respond(String applicationId, String action) async {
+    await _void(
+      () => _dio.patch<Map<String, dynamic>>(
+        '/v1/project-applications/$applicationId',
+        data: {'action': action},
+      ),
+    );
+    await invalidateCache('/v1/project-applications');
+    await invalidateCache('/v1/projects');
+  }
 
   @override
-  Future<void> reportProject(String projectId, String reason) async => _void(
-    () => _dio.post<Map<String, dynamic>>(
-      '/v1/reports',
-      data: {'targetType': 'project', 'targetId': projectId, 'reason': reason},
-    ),
-  );
+  Future<void> reportProject(String projectId, String reason) async {
+    await _void(
+      () => _dio.post<Map<String, dynamic>>(
+        '/v1/reports',
+        data: {
+          'targetType': 'project',
+          'targetId': projectId,
+          'reason': reason,
+        },
+      ),
+    );
+    await invalidateCache('/v1/projects');
+  }
 
-  Future<Map<String, dynamic>> _get(String path) =>
-      _request(() => _dio.get<Map<String, dynamic>>(path));
+  Future<Map<String, dynamic>> _get(
+    String path, {
+    Map<String, Object?>? query,
+    Duration ttl = const Duration(seconds: 30),
+  }) => cachedGet(
+    path,
+    () => _request(
+      () => _dio.get<Map<String, dynamic>>(path, queryParameters: query),
+    ),
+    query: query,
+    ttl: ttl,
+  );
   Future<void> _void(
     Future<Response<Map<String, dynamic>>> Function() request,
   ) async {

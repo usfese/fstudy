@@ -7,7 +7,10 @@
 | 文件 | 职责 |
 | --- | --- |
 | `main.dart` | 入口：`WidgetsFlutterBinding.ensureInitialized()`，`usePathUrlStrategy()`，注入 `DioAuthRepository` 并 `runApp` |
-| `app.dart` | **唯一的组装点**：`FStudyApp`（`StatefulWidget`），包含路由表、会话状态、主题、仓库工厂 |
+| `app.dart` | **唯一的组装点**：`FStudyApp`（`StatefulWidget`），包含路由表、会话状态、主题、仓库工厂、按账号创建的 `ClientCache` |
+| `core/cache/client_cache.dart` | 按账号持久化的 GET 响应缓存，保存在 `flutter_secure_storage` |
+| `core/cache/cached_api.dart` | `CachedApi` mixin：stale-while-revalidate 读取、缓存通知、写操作失效 |
+| `core/cache/cache_refresh_mixin.dart` | 页面订阅缓存变更并在后台刷新后重载 |
 | `navigation/app_shell.dart` | 主导航外壳：窄屏底部 `NavigationBar`，宽屏（≥ 760 px）侧边导航 |
 | `features/*` | 按功能划分的页面与仓库 |
 
@@ -28,16 +31,26 @@ FStudyApp({
 })
 ```
 
-每个工厂都是可选的：生产环境为 `null`，此时 `_setSession` 使用 `Dio*Repository(accessToken: session.accessToken)`；测试注入假仓库，因此 **widget 测试不发起真实网络请求**。
+每个工厂都是可选的：生产环境为 `null`，此时 `_setSession` 使用 `Dio*Repository(accessToken: ..., cache: ...)`，并把同一个 `ClientCache` 注入所有仓库；测试注入假仓库，因此 **widget 测试不发起真实网络请求**。
 
-会话切换统一由 `_setSession(AuthSession?)` 完成：会话为空时清空所有仓库和未读数；非空时重新构造仓库并刷新未读通知数。退出登录时还会调用 `RecentInputs.clear()`，避免同一设备上的短期输入建议跨账号泄漏。
+会话切换统一由 `_setSession(AuthSession?)` 完成：会话为空时清空所有仓库和未读数；非空时按账号创建 `ClientCache`、构造仓库并刷新未读通知数。相同令牌只刷新用户快照时不会重建仓库。退出登录时还会调用 `RecentInputs.clear()` 并删除该账号的缓存，避免同一设备上的数据跨账号泄漏。
+
+## 本地缓存与后台刷新
+
+- `ClientCache` 以账号为单位保存原始 GET 响应，键为 `fstudy_cache_v1_<userId>`，值为 `{entries: {"GET <path>?<query>": {at, data}}}`，落在 `flutter_secure_storage`。
+- 仓库通过 `CachedApi.cachedGet` 读取：有缓存先返回缓存；条目超过 TTL 时在后台请求云端。云端数据与缓存不同则写入并通知 `cacheChanges`，页面据此重载；相同则不通知。
+- 默认 TTL 为 30 秒；标签 5 分钟、共同空闲 2 分钟、通知 10 秒。写操作成功后按路径失效对应缓存（如 `/v1/courses`、`/v1/plans`）。
+- 页面使用 `CacheRefreshMixin` 订阅变更；`FutureBuilder` 在 `connectionState != done && !hasData` 时才显示加载圈，旧数据在后台刷新期间保持可见。
+- 缓存只用于读取。所有写入仍直接请求云端，失败时不清空缓存；后台刷新失败时静默保留旧数据，保证离线/部署窗口可用。
+- 退出登录或后台校验返回 401 时清空缓存；`clear()` 之后的在途写入会被丢弃。
 
 ## 启动与会话恢复
 
-1. `initState` 创建 `GoRouter`，并调用 `_restoreThemeMode()` 与 `_restoreSession()`。
-2. `_restoreSession()` 调用 `repository.restoreSession()`：读取 `fstudy_access_token`，请求 `GET /v1/me`。失败则删除本地令牌并返回 `null`。
-3. 恢复期间 `_restoring = true`，路由重定向返回 `null`，不跳转。
-4. 恢复完成后 `_router.refresh()`，重定向规则生效。
+1. `initState` 创建 `GoRouter`，订阅 `repository.sessionChanges`，并调用 `_restoreThemeMode()` 与 `_restoreSession()`。
+2. `_restoreSession()` 调用 `repository.restoreSession()`：读取 `fstudy_access_token` 与 `fstudy_access_user`。有本地用户快照时立即返回该会话，同时在后台请求 `GET /v1/me` 校验；没有快照时才等待网络。
+3. 后台校验成功会刷新用户快照；用户信息变化时通过 `sessionChanges` 推送新会话。明确返回 401 时清除本地令牌并推送 `null`，应用退回登录页。
+4. 恢复期间 `_restoring = true`，路由重定向返回 `null`，不跳转；恢复完成后 `_router.refresh()`。
+5. 网络错误或 5xx 时保留缓存会话，部署或离线期间不会丢失登录状态。
 
 ### 路由重定向规则
 

@@ -6,6 +6,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-11-05
+
+### Added
+
+- 客户端本地缓存：启动、课表和课程等页面先显示上次数据，再在后台与云端同步并自动更新。
+
+### Changed
+
+- 登录会话恢复改为先使用本地快照进入应用，再在后台校验令牌；令牌失效时自动退出。
+
 ## [1.0.0] - 2026-10-23
 
 ### Added

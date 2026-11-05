@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:dio/dio.dart';
@@ -87,6 +88,10 @@ class SecureAuthStorage implements AuthStorage {
 }
 
 abstract interface class AuthRepository {
+  /// Emits a replacement session, or `null` when background validation
+  /// discovers that the stored token was revoked.
+  Stream<AuthSession?> get sessionChanges;
+
   Future<AuthSession?> restoreSession();
 
   Future<AuthSession> login({
@@ -149,6 +154,11 @@ class DioAuthRepository implements AuthRepository {
   static const _userKey = 'fstudy_access_user';
   final Dio _dio;
   final AuthStorage _storage;
+  final _sessionEvents = StreamController<AuthSession?>.broadcast();
+  int _sessionEpoch = 0;
+
+  @override
+  Stream<AuthSession?> get sessionChanges => _sessionEvents.stream;
 
   @override
   Future<AuthSession?> restoreSession() async {
@@ -177,15 +187,19 @@ class DioAuthRepository implements AuthRepository {
       return null;
     }
 
+    final cachedSession = cached;
+    if (cachedSession != null) {
+      final accessToken = token;
+      // Show the signed-in UI immediately; validation runs after the caller
+      // has applied the cached session and entered the app.
+      unawaited(
+        Future<void>(() => _validateCachedSession(accessToken, cachedSession)),
+      );
+      return cachedSession;
+    }
+
     try {
-      final response = await _dio.get<Map<String, dynamic>>(
-        '/v1/me',
-        options: Options(headers: {'authorization': 'Bearer $token'}),
-      );
-      final user = AuthUser.fromJson(
-        response.data!['user'] as Map<String, dynamic>,
-      );
-      final session = AuthSession(accessToken: token, user: user);
+      final session = await _fetchSession(token);
       await _writeSession(session);
       return session;
     } on DioException catch (error) {
@@ -195,11 +209,48 @@ class DioAuthRepository implements AuthRepository {
         await _clearSession();
         return null;
       }
-      return cached;
+      return null;
     } catch (_) {
-      return cached;
+      return null;
     }
   }
+
+  Future<AuthSession> _fetchSession(String token) async {
+    final response = await _dio.get<Map<String, dynamic>>(
+      '/v1/me',
+      options: Options(headers: {'authorization': 'Bearer $token'}),
+    );
+    return AuthSession(
+      accessToken: token,
+      user: AuthUser.fromJson(response.data!['user'] as Map<String, dynamic>),
+    );
+  }
+
+  Future<void> _validateCachedSession(String token, AuthSession cached) async {
+    final epoch = _sessionEpoch;
+    try {
+      final session = await _fetchSession(token);
+      if (epoch != _sessionEpoch) return;
+      await _writeSession(session);
+      if (!_sameUser(cached.user, session.user)) {
+        _sessionEvents.add(session);
+      }
+    } on DioException catch (error) {
+      if (error.response?.statusCode == 401) {
+        if (epoch != _sessionEpoch) return;
+        await _clearSession();
+        _sessionEvents.add(null);
+      }
+    } catch (_) {
+      // A deploy or an offline device keeps the cached session usable.
+    }
+  }
+
+  bool _sameUser(AuthUser left, AuthUser right) =>
+      left.id == right.id &&
+      left.username == right.username &&
+      left.displayName == right.displayName &&
+      left.departmentId == right.departmentId;
 
   Future<void> _writeSession(AuthSession session) async {
     await _storage.write(_userKey, jsonEncode(session.user.toJson()));
@@ -207,6 +258,7 @@ class DioAuthRepository implements AuthRepository {
   }
 
   Future<void> _clearSession() async {
+    _sessionEpoch++;
     try {
       await _storage.delete(_tokenKey);
     } catch (_) {

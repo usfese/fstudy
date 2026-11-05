@@ -1,6 +1,9 @@
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 
+import '../../core/cache/cached_api.dart';
+import '../../core/cache/client_cache.dart';
+
 const _configuredApiUrl = String.fromEnvironment('API_BASE_URL');
 
 String get _defaultApiUrl =>
@@ -61,8 +64,10 @@ abstract interface class NotificationRepository {
   Future<NotificationOverview> markRead({String? id});
 }
 
-class DioNotificationRepository implements NotificationRepository {
-  DioNotificationRepository({required String accessToken, Dio? dio})
+class DioNotificationRepository
+    with CachedApi
+    implements NotificationRepository {
+  DioNotificationRepository({required String accessToken, Dio? dio, this.cache})
     : _dio =
           dio ??
           Dio(
@@ -80,26 +85,33 @@ class DioNotificationRepository implements NotificationRepository {
           );
 
   final Dio _dio;
+  @override
+  final ClientCache? cache;
 
   @override
-  Future<NotificationOverview> list() =>
-      _request(() => _dio.get<Map<String, dynamic>>('/v1/notifications'));
+  Future<NotificationOverview> list() async {
+    final data = await cachedGet(
+      '/v1/notifications',
+      () => _request(() => _dio.get<Map<String, dynamic>>('/v1/notifications')),
+      ttl: const Duration(seconds: 10),
+    );
+    return _overview(data);
+  }
 
   @override
-  Future<NotificationOverview> markRead({String? id}) => _request(
-    () => _dio.post<Map<String, dynamic>>(
-      '/v1/notifications/read',
-      data: {'id': ?id},
-    ),
-  );
+  Future<NotificationOverview> markRead({String? id}) async {
+    final data = await _request(
+      () => _dio.post<Map<String, dynamic>>(
+        '/v1/notifications/read',
+        data: {'id': ?id},
+      ),
+    );
+    await storeCached('/v1/notifications', data);
+    return _overview(data);
+  }
 
-  Future<NotificationOverview> _request(
-    Future<Response<Map<String, dynamic>>> Function() call,
-  ) async {
-    try {
-      final response = await call();
-      final data = response.data!;
-      return NotificationOverview(
+  NotificationOverview _overview(Map<String, dynamic> data) =>
+      NotificationOverview(
         unreadCount: data['unreadCount'] as int,
         notifications: (data['notifications'] as List)
             .map(
@@ -107,6 +119,13 @@ class DioNotificationRepository implements NotificationRepository {
             )
             .toList(),
       );
+
+  Future<Map<String, dynamic>> _request(
+    Future<Response<Map<String, dynamic>>> Function() call,
+  ) async {
+    try {
+      final response = await call();
+      return response.data!;
     } on DioException catch (error) {
       final body = error.response?.data;
       if (body is Map && body['error'] is Map) {
