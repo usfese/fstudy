@@ -1,6 +1,9 @@
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 
+import '../../core/cache/cached_api.dart';
+import '../../core/cache/client_cache.dart';
+
 const _configuredApiUrl = String.fromEnvironment('API_BASE_URL');
 
 String get _defaultApiUrl =>
@@ -140,8 +143,8 @@ abstract interface class AcademicRepository {
   Future<void> setAssignmentCompleted(String id, bool completed);
 }
 
-class DioAcademicRepository implements AcademicRepository {
-  DioAcademicRepository({required String accessToken, Dio? dio})
+class DioAcademicRepository with CachedApi implements AcademicRepository {
+  DioAcademicRepository({required String accessToken, Dio? dio, this.cache})
     : _dio =
           dio ??
           Dio(
@@ -159,11 +162,16 @@ class DioAcademicRepository implements AcademicRepository {
           );
 
   final Dio _dio;
+  @override
+  final ClientCache? cache;
 
   @override
   Future<DateTime?> getSemesterStartDate() async {
-    final data = await _request(
-      () => _dio.get<Map<String, dynamic>>('/v1/me/academic-settings'),
+    final data = await cachedGet(
+      '/v1/me/academic-settings',
+      () => _request(
+        () => _dio.get<Map<String, dynamic>>('/v1/me/academic-settings'),
+      ),
     );
     final value = data['semesterStartDate'];
     return value is String ? DateTime.parse(value) : null;
@@ -177,12 +185,14 @@ class DioAcademicRepository implements AcademicRepository {
         data: {'semesterStartDate': date?.toIso8601String().split('T').first},
       ),
     );
+    await invalidateCache('/v1/me/academic-settings');
   }
 
   @override
   Future<List<Course>> listCourses() async {
-    final data = await _request(
-      () => _dio.get<Map<String, dynamic>>('/v1/courses'),
+    final data = await cachedGet(
+      '/v1/courses',
+      () => _request(() => _dio.get<Map<String, dynamic>>('/v1/courses')),
     );
     return (data['courses'] as List)
         .map((value) => Course.fromJson(value as Map<String, dynamic>))
@@ -206,6 +216,7 @@ class DioAcademicRepository implements AcademicRepository {
         },
       ),
     );
+    await invalidateCache('/v1/courses');
   }
 
   @override
@@ -227,16 +238,19 @@ class DioAcademicRepository implements AcademicRepository {
         },
       ),
     );
+    await invalidateCache('/v1/courses');
   }
 
   @override
   Future<void> deleteCourse(String id) async {
     await _request(() => _dio.delete<Map<String, dynamic>>('/v1/courses/$id'));
+    await invalidateCache('/v1/courses');
   }
 
   @override
   Future<void> clearCourses() async {
     await _request(() => _dio.delete<Map<String, dynamic>>('/v1/courses'));
+    await invalidateCache('/v1/courses');
   }
 
   Map<String, dynamic> _meetingJson(CourseMeeting meeting) => {
@@ -253,8 +267,9 @@ class DioAcademicRepository implements AcademicRepository {
 
   @override
   Future<List<Assignment>> listAssignments() async {
-    final data = await _request(
-      () => _dio.get<Map<String, dynamic>>('/v1/assignments'),
+    final data = await cachedGet(
+      '/v1/assignments',
+      () => _request(() => _dio.get<Map<String, dynamic>>('/v1/assignments')),
     );
     return (data['assignments'] as List)
         .map((value) => Assignment.fromJson(value as Map<String, dynamic>))
@@ -279,6 +294,7 @@ class DioAcademicRepository implements AcademicRepository {
         },
       ),
     );
+    await invalidateCache('/v1/assignments');
   }
 
   @override
@@ -300,6 +316,7 @@ class DioAcademicRepository implements AcademicRepository {
         },
       ),
     );
+    await invalidateCache('/v1/assignments');
   }
 
   @override
@@ -307,6 +324,7 @@ class DioAcademicRepository implements AcademicRepository {
     await _request(
       () => _dio.delete<Map<String, dynamic>>('/v1/assignments/$id'),
     );
+    await invalidateCache('/v1/assignments');
   }
 
   @override
@@ -317,6 +335,7 @@ class DioAcademicRepository implements AcademicRepository {
         data: {'completed': completed},
       ),
     );
+    await invalidateCache('/v1/assignments');
   }
 
   Future<Map<String, dynamic>> _request(

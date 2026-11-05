@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../core/cache/cache_refresh_mixin.dart';
+
 import 'social_repository.dart';
 
 class DiscoverPage extends StatefulWidget {
@@ -10,7 +12,8 @@ class DiscoverPage extends StatefulWidget {
   State<DiscoverPage> createState() => _DiscoverPageState();
 }
 
-class _DiscoverPageState extends State<DiscoverPage> {
+class _DiscoverPageState extends State<DiscoverPage>
+    with CacheRefreshMixin<DiscoverPage> {
   late Future<List<DiscoveredUser>> _users;
 
   @override
@@ -20,6 +23,14 @@ class _DiscoverPageState extends State<DiscoverPage> {
   }
 
   void _reload() => _users = widget.repository.discoverUsers();
+
+  @override
+  Object? get cacheSource => widget.repository;
+
+  @override
+  void reloadFromCache() => setState(() {
+    _reload();
+  });
 
   Future<void> _sendRequest(DiscoveredUser user) async {
     try {
@@ -45,7 +56,8 @@ class _DiscoverPageState extends State<DiscoverPage> {
     return FutureBuilder<List<DiscoveredUser>>(
       future: _users,
       builder: (context, snapshot) {
-        if (snapshot.connectionState != ConnectionState.done) {
+        if (snapshot.connectionState != ConnectionState.done &&
+            !snapshot.hasData) {
           return const Center(child: CircularProgressIndicator());
         }
         if (snapshot.hasError) {

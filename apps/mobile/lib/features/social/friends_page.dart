@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+
+import '../../core/cache/cache_refresh_mixin.dart';
+
 import 'package:go_router/go_router.dart';
 
 import 'social_repository.dart';
@@ -11,7 +14,8 @@ class FriendsPage extends StatefulWidget {
   State<FriendsPage> createState() => _FriendsPageState();
 }
 
-class _FriendsPageState extends State<FriendsPage> {
+class _FriendsPageState extends State<FriendsPage>
+    with CacheRefreshMixin<FriendsPage> {
   late Future<FriendsOverview> _overview;
 
   @override
@@ -21,6 +25,14 @@ class _FriendsPageState extends State<FriendsPage> {
   }
 
   void _reload() => _overview = widget.repository.listFriends();
+
+  @override
+  Object? get cacheSource => widget.repository;
+
+  @override
+  void reloadFromCache() => setState(() {
+    _reload();
+  });
 
   Future<void> _act(String requestId, String action) async {
     try {
@@ -42,7 +54,8 @@ class _FriendsPageState extends State<FriendsPage> {
   Widget build(BuildContext context) => FutureBuilder<FriendsOverview>(
     future: _overview,
     builder: (context, snapshot) {
-      if (snapshot.connectionState != ConnectionState.done) {
+      if (snapshot.connectionState != ConnectionState.done &&
+          !snapshot.hasData) {
         return const Center(child: CircularProgressIndicator());
       }
       if (snapshot.hasError) {

@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+
+import '../../core/cache/cache_refresh_mixin.dart';
+
 import 'package:go_router/go_router.dart';
 
 import 'notification_repository.dart';
@@ -17,7 +20,8 @@ class NotificationsPage extends StatefulWidget {
   State<NotificationsPage> createState() => _NotificationsPageState();
 }
 
-class _NotificationsPageState extends State<NotificationsPage> {
+class _NotificationsPageState extends State<NotificationsPage>
+    with CacheRefreshMixin<NotificationsPage> {
   late Future<NotificationOverview> _overview;
   bool _markingAll = false;
 
@@ -34,6 +38,14 @@ class _NotificationsPageState extends State<NotificationsPage> {
   }
 
   void _reload() => _overview = _load();
+
+  @override
+  Object? get cacheSource => widget.repository;
+
+  @override
+  void reloadFromCache() => setState(() {
+    _reload();
+  });
 
   Future<void> _markAllRead() async {
     setState(() => _markingAll = true);
@@ -91,7 +103,8 @@ class _NotificationsPageState extends State<NotificationsPage> {
         child: FutureBuilder<NotificationOverview>(
           future: _overview,
           builder: (context, snapshot) {
-            if (snapshot.connectionState != ConnectionState.done) {
+            if (snapshot.connectionState != ConnectionState.done &&
+                !snapshot.hasData) {
               return const Center(child: CircularProgressIndicator());
             }
             if (snapshot.hasError) {
@@ -101,7 +114,9 @@ class _NotificationsPageState extends State<NotificationsPage> {
                   children: [
                     const Text('通知加载失败'),
                     TextButton(
-                      onPressed: () => setState(_reload),
+                      onPressed: () => setState(() {
+                        _reload();
+                      }),
                       child: const Text('重试'),
                     ),
                   ],

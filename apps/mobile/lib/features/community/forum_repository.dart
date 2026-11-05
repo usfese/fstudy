@@ -1,6 +1,9 @@
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 
+import '../../core/cache/cached_api.dart';
+import '../../core/cache/client_cache.dart';
+
 const _configuredApiUrl = String.fromEnvironment('API_BASE_URL');
 String get _defaultApiUrl =>
     kIsWeb ? 'http://127.0.0.1:8787' : 'http://10.0.2.2:8787';
@@ -77,8 +80,8 @@ abstract interface class ForumRepository {
   });
 }
 
-class DioForumRepository implements ForumRepository {
-  DioForumRepository({required String accessToken, Dio? dio})
+class DioForumRepository with CachedApi implements ForumRepository {
+  DioForumRepository({required String accessToken, Dio? dio, this.cache})
     : _dio =
           dio ??
           Dio(
@@ -96,15 +99,13 @@ class DioForumRepository implements ForumRepository {
           );
 
   final Dio _dio;
+  @override
+  final ClientCache? cache;
 
   @override
   Future<List<ForumPost>> listPosts({String? category}) async {
-    final data = await _request(
-      () => _dio.get<Map<String, dynamic>>(
-        '/v1/forum/posts',
-        queryParameters: {'category': ?category},
-      ),
-    );
+    final query = <String, Object?>{'category': ?category};
+    final data = await _get('/v1/forum/posts', query: query);
     return (data['posts'] as List)
         .map((post) => ForumPost.fromJson(post as Map<String, dynamic>))
         .toList();
@@ -115,18 +116,19 @@ class DioForumRepository implements ForumRepository {
     required String category,
     required String title,
     required String body,
-  }) async => _void(
-    () => _dio.post<Map<String, dynamic>>(
-      '/v1/forum/posts',
-      data: {'category': category, 'title': title, 'body': body},
-    ),
-  );
+  }) async {
+    await _void(
+      () => _dio.post<Map<String, dynamic>>(
+        '/v1/forum/posts',
+        data: {'category': category, 'title': title, 'body': body},
+      ),
+    );
+    await invalidateCache('/v1/forum/posts');
+  }
 
   @override
   Future<ForumThread> getThread(String postId) async {
-    final data = await _request(
-      () => _dio.get<Map<String, dynamic>>('/v1/forum/posts/$postId'),
-    );
+    final data = await _get('/v1/forum/posts/$postId');
     return ForumThread(
       post: ForumPost.fromJson(data['post'] as Map<String, dynamic>),
       replies: (data['replies'] as List)
@@ -136,23 +138,48 @@ class DioForumRepository implements ForumRepository {
   }
 
   @override
-  Future<void> createReply(String postId, String body) async => _void(
-    () => _dio.post<Map<String, dynamic>>(
-      '/v1/forum/posts/$postId/replies',
-      data: {'body': body},
-    ),
-  );
+  Future<void> createReply(String postId, String body) async {
+    await _void(
+      () => _dio.post<Map<String, dynamic>>(
+        '/v1/forum/posts/$postId/replies',
+        data: {'body': body},
+      ),
+    );
+    await invalidateCache('/v1/forum/posts');
+  }
 
   @override
   Future<void> reportContent({
     required String targetType,
     required String targetId,
     required String reason,
-  }) async => _void(
-    () => _dio.post<Map<String, dynamic>>(
-      '/v1/reports',
-      data: {'targetType': targetType, 'targetId': targetId, 'reason': reason},
+  }) async {
+    await _void(
+      () => _dio.post<Map<String, dynamic>>(
+        '/v1/reports',
+        data: {
+          'targetType': targetType,
+          'targetId': targetId,
+          'reason': reason,
+        },
+      ),
+    );
+    if (targetType == 'forum_post' || targetType == 'forum_reply') {
+      await invalidateCache('/v1/forum/posts');
+    }
+  }
+
+  Future<Map<String, dynamic>> _get(
+    String path, {
+    Map<String, Object?>? query,
+    Duration ttl = const Duration(seconds: 30),
+  }) => cachedGet(
+    path,
+    () => _request(
+      () => _dio.get<Map<String, dynamic>>(path, queryParameters: query),
     ),
+    query: query,
+    ttl: ttl,
   );
 
   Future<void> _void(

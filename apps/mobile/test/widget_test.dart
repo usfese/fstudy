@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fstudy/app.dart';
+import 'package:fstudy/core/cache/cached_api.dart';
 import 'package:fstudy/features/about/about_page.dart';
 import 'package:fstudy/features/auth/auth_repository.dart';
 import 'package:fstudy/features/academic/academic_repository.dart';
@@ -18,6 +19,9 @@ class FakeAuthRepository implements AuthRepository {
   final AuthSession? session;
   bool loggedOut = false;
   bool casStarted = false;
+
+  @override
+  Stream<AuthSession?> get sessionChanges => const Stream.empty();
 
   @override
   Future<AuthSession?> restoreSession() async => session;
@@ -94,10 +98,14 @@ class FakeAuthRepository implements AuthRepository {
   Future<void> logout() async => loggedOut = true;
 }
 
-class FakeAcademicRepository implements AcademicRepository {
+class FakeAcademicRepository implements AcademicRepository, CacheChangeSource {
   final List<Course> courses = [];
   final List<Assignment> assignments = [];
+  final ValueNotifier<int> cacheRevision = ValueNotifier<int>(0);
   DateTime? semesterStartDate;
+
+  @override
+  Listenable get cacheChanges => cacheRevision;
 
   @override
   Future<DateTime?> getSemesterStartDate() async => semesterStartDate;
@@ -944,6 +952,61 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('还没有课程'), findsOneWidget);
+  });
+
+  testWidgets('a cached schedule updates when newer data arrives', (
+    tester,
+  ) async {
+    final repository = FakeAcademicRepository()
+      ..courses.add(
+        const Course(
+          id: 'course-1',
+          name: '旧课程',
+          teacher: null,
+          color: '#3559C7',
+          meetings: [
+            CourseMeeting(
+              weekday: 1,
+              startMinute: 8 * 60,
+              endMinute: 9 * 60,
+              startWeek: 1,
+              endWeek: 16,
+              weekParity: 'all',
+            ),
+          ],
+        ),
+      );
+    await tester.pumpWidget(testApp(repository));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('本周课表'));
+    await tester.pumpAndSettle();
+    expect(find.text('旧课程'), findsWidgets);
+
+    repository.courses
+      ..clear()
+      ..add(
+        const Course(
+          id: 'course-1',
+          name: '新课程',
+          teacher: null,
+          color: '#3559C7',
+          meetings: [
+            CourseMeeting(
+              weekday: 1,
+              startMinute: 8 * 60,
+              endMinute: 9 * 60,
+              startWeek: 1,
+              endWeek: 16,
+              weekParity: 'all',
+            ),
+          ],
+        ),
+      );
+    repository.cacheRevision.value++;
+    await tester.pumpAndSettle();
+
+    expect(find.text('新课程'), findsWidgets);
+    expect(find.text('旧课程'), findsNothing);
   });
 
   testWidgets('campus map opens with searchable campus locations', (

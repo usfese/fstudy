@@ -1,6 +1,9 @@
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 
+import '../../core/cache/cached_api.dart';
+import '../../core/cache/client_cache.dart';
+
 const _configuredApiUrl = String.fromEnvironment('API_BASE_URL');
 
 String get _defaultApiUrl =>
@@ -64,8 +67,8 @@ abstract interface class PlanRepository {
   Future<void> setPlanCompleted(String id, bool completed);
 }
 
-class DioPlanRepository implements PlanRepository {
-  DioPlanRepository({required String accessToken, Dio? dio})
+class DioPlanRepository with CachedApi implements PlanRepository {
+  DioPlanRepository({required String accessToken, Dio? dio, this.cache})
     : _dio =
           dio ??
           Dio(
@@ -83,11 +86,14 @@ class DioPlanRepository implements PlanRepository {
           );
 
   final Dio _dio;
+  @override
+  final ClientCache? cache;
 
   @override
   Future<List<Plan>> listPlans() async {
-    final data = await _request(
-      () => _dio.get<Map<String, dynamic>>('/v1/plans'),
+    final data = await cachedGet(
+      '/v1/plans',
+      () => _request(() => _dio.get<Map<String, dynamic>>('/v1/plans')),
     );
     return (data['plans'] as List)
         .map((value) => Plan.fromJson(value as Map<String, dynamic>))
@@ -114,6 +120,7 @@ class DioPlanRepository implements PlanRepository {
         },
       ),
     );
+    await invalidateCache('/v1/plans');
   }
 
   @override
@@ -137,11 +144,13 @@ class DioPlanRepository implements PlanRepository {
         },
       ),
     );
+    await invalidateCache('/v1/plans');
   }
 
   @override
   Future<void> deletePlan(String id) async {
     await _request(() => _dio.delete<Map<String, dynamic>>('/v1/plans/$id'));
+    await invalidateCache('/v1/plans');
   }
 
   @override
@@ -152,6 +161,7 @@ class DioPlanRepository implements PlanRepository {
         data: {'completed': completed},
       ),
     );
+    await invalidateCache('/v1/plans');
   }
 
   Future<Map<String, dynamic>> _request(

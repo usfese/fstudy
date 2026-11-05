@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../core/cache/cache_refresh_mixin.dart';
+
 import 'social_repository.dart';
 
 class AvailabilityPage extends StatefulWidget {
@@ -10,7 +12,8 @@ class AvailabilityPage extends StatefulWidget {
   State<AvailabilityPage> createState() => _AvailabilityPageState();
 }
 
-class _AvailabilityPageState extends State<AvailabilityPage> {
+class _AvailabilityPageState extends State<AvailabilityPage>
+    with CacheRefreshMixin<AvailabilityPage> {
   late Future<FriendsOverview> _friends;
   late Future<List<AvailabilityInvite>> _invites;
   String? _friendId;
@@ -30,6 +33,17 @@ class _AvailabilityPageState extends State<AvailabilityPage> {
 
   void _reloadInvites() {
     _invites = widget.repository.listAvailabilityInvites();
+  }
+
+  @override
+  Object? get cacheSource => widget.repository;
+
+  @override
+  void reloadFromCache() {
+    setState(() {
+      _friends = widget.repository.listFriends();
+      _reloadInvites();
+    });
   }
 
   Future<void> _query() async {
@@ -84,7 +98,9 @@ class _AvailabilityPageState extends State<AvailabilityPage> {
         title: title,
       );
       if (mounted) {
-        setState(_reloadInvites);
+        setState(() {
+          _reloadInvites();
+        });
         _message('邀请已发送');
       }
     } on SocialFailure catch (error) {
@@ -95,7 +111,11 @@ class _AvailabilityPageState extends State<AvailabilityPage> {
   Future<void> _respond(String id, String action) async {
     try {
       await widget.repository.respondToAvailabilityInvite(id, action);
-      if (mounted) setState(_reloadInvites);
+      if (mounted) {
+        setState(() {
+          _reloadInvites();
+        });
+      }
     } on SocialFailure catch (error) {
       if (mounted) _message(error.message);
     }
@@ -258,7 +278,8 @@ class _AvailabilityPageState extends State<AvailabilityPage> {
             future: _invites,
             builder: (context, snapshot) {
               final invites = snapshot.data ?? const <AvailabilityInvite>[];
-              if (snapshot.connectionState != ConnectionState.done) {
+              if (snapshot.connectionState != ConnectionState.done &&
+                  !snapshot.hasData) {
                 return const Center(child: CircularProgressIndicator());
               }
               if (invites.isEmpty) return const Text('暂无邀请');

@@ -7,9 +7,11 @@
 ```
 apps/mobile/
 ├── lib/                 应用源码 → lib/README.md、features/README.md
-├── test/widget_test.dart  41 个组件/行为测试（使用假仓库）
+├── lib/core/cache/      按账号持久化的 GET 缓存与 stale-while-revalidate 工具
+├── test/widget_test.dart  43 个组件/行为测试（使用假仓库）
 ├── test/class_periods_test.dart  4 个固定节次与短期输入记忆单元测试
-├── test/auth_repository_test.dart  6 个会话持久化单元测试（假 Dio 适配器 + 内存存储）
+├── test/auth_repository_test.dart  8 个会话持久化单元测试（假 Dio 适配器 + 内存存储）
+├── test/client_cache_test.dart  6 个缓存持久化与后台刷新单元测试
 ├── web/                 Web 入口与 PWA 资源（手写，需要关注）
 ├── android/             Android 平台工程（参与 CI 调试构建与 tag 发布）
 ├── ios/                 iOS 平台工程（保留结构，不构建）
@@ -30,7 +32,7 @@ apps/mobile/
 | `flutter_riverpod` | ^3.4.3 | 状态管理依赖 | **保留，预留**（未在 `lib/` 中引用，ADR-020） |
 | `go_router` | ^18.0.2 | 顶层路由与浏览器 URL | 使用 |
 | `dio` | ^5.11.1 | HTTP 客户端 | 使用（所有 `Dio*Repository`） |
-| `flutter_secure_storage` | ^11.2.0 | 保存访问令牌与主题偏好 | 使用 |
+| `flutter_secure_storage` | ^11.2.0 | 保存访问令牌、主题偏好与按账号的 GET 缓存 | 使用 |
 | `url_launcher` | ^6.3.2 | 打开外部页面（北邮 CAS 跳转、校园地图外链） | 使用 |
 | `drift` / `sqlite3` / `sqlite3_flutter_libs` | ^2.35.1 / **3.5.2（钉死）** / ^0.6.0+eol | 本地数据库 | **保留，预留**（计划中的离线存储，ADR-020） |
 | `flutter_local_notifications` | ^22.3.1 | 本地通知 | **保留，预留**，为未来的 Android 版本准备（ADR-020）。Android 通知暂缓（`AGENT.md`） |
