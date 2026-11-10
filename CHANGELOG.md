@@ -6,6 +6,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [1.0.2] - 2026-11-10
+
+### Fixed
+
+- Android Release APK 显式启用 v2 + v3 签名，发布流程校验两种签名方案，改善新系统上的安装兼容性。
+- README 补充“packageInfo is null”安装排查说明：校验下载完整性、选择正确 ABI、先卸载旧签名版本。
+
 ## [1.0.1] - 2026-11-05
 
 ### Added

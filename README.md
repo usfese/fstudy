@@ -229,6 +229,13 @@ Android Release 构建需要项目自己的签名密钥，`apps/mobile/android/k
 
 项目当前不使用 Google Play，因此 Release 只发布通用 APK 和分 ABI APK，不生成 AAB。安装时优先选择与设备 ABI 匹配的 APK；不确定时使用通用 APK。
 
+如果安装时提示“解析软件包时出现问题（33）”“packageInfo is null”或类似错误：
+
+1. 先核对下载文件大小与 Release 中的 `SHA256SUMS.txt`，不完整下载会导致安装器无法解析包。
+2. 大多数手机使用 `arm64-v8a` 分 ABI APK；不确定架构时再下载通用 APK。
+3. 如果设备上装过 debug 签名或其它签名来源的旧版本，先卸载旧应用，再安装 Release APK。
+4. Android 11 及以上要求 APK 包含 v2 签名；本项目 Release 同时启用 v2 和 v3，并由 workflow 校验。
+
 ## 安全与隐私
 
 - 注册采用邀请制；没有邀请码无法创建账户。

@@ -59,6 +59,10 @@ android {
                 keyPassword = keystoreProperties["keyPassword"] as String
                 storeFile = file(keystoreProperties["storeFile"] as String)
                 storePassword = keystoreProperties["storePassword"] as String
+                // AGP omits v1 when minSdk >= 24. Keep v2 + v3 explicit so
+                // installers also accept APKs on newer Android releases.
+                enableV2Signing = true
+                enableV3Signing = true
             }
         }
     }
