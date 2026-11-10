@@ -63,7 +63,7 @@
 4. 构建：
    - 通用 APK：`flutter build apk --release`
    - 分 ABI APK：`flutter build apk --release --split-per-abi`，覆盖 `arm64-v8a`、`armeabi-v7a`、`x86_64`。
-5. 使用 `apksigner` 验证所有 APK 均为 release 签名，拒绝 debug 签名。
+5. 使用 `apksigner` 验证所有 APK 均为 release 签名，要求 v2 与 v3 签名方案同时为 true，并拒绝 debug 签名。
 6. 生成 `BUILD_INFO.txt` 与 `SHA256SUMS.txt`。
 7. 上传 workflow artifact，并在 tag 事件中创建或更新 GitHub Release。
 8. 无论成功失败，删除临时 `key.properties` 和 keystore。

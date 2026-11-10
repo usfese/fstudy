@@ -86,6 +86,8 @@ CI 中执行上述 Web 验证命令，并额外执行 `flutter build apk --debug
 - 签名配置位于 `apps/mobile/android/key.properties`，指向一个 `.jks`。两者都被 Git 忽略。
 - GitHub Actions 通过 `ANDROID_KEYSTORE_BASE64`、`ANDROID_KEYSTORE_PASSWORD`、`ANDROID_KEY_PASSWORD`、`ANDROID_KEY_ALIAS` 注入签名材料。
 - 没有 `key.properties` 时，Gradle 的 release 构建会直接失败，禁止回退到 debug 签名发布。
+- Release APK 启用 v2 + v3 签名；`release.yml` 用 `apksigner` 校验两者，防止无 v2 签名导致 Android 11+ 安装失败。`minSdk >= 24` 时 AGP 不生成 v1 签名。
+- 安装报 `packageInfo is null` 时先核对 `SHA256SUMS.txt`、选择匹配 ABI 的 APK，并卸载使用其他签名的旧版本；详见根 `README.md` 的 Android 安装排查。
 - `apps/mobile/README.md` 是客户端入口文档；发布与签名细节以本节和 `CONTRIBUTING.md` 为准。
 
 ## 镜像

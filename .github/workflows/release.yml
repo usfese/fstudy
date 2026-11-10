@@ -201,11 +201,17 @@ jobs:
 
           for apk in "${apks[@]}"; do
             echo "Verifying $(basename "$apk")"
-            output="$("$APKSIGNER" verify --print-certs "$apk")"
+            output="$("$APKSIGNER" verify --verbose --print-certs "$apk")"
             if echo "$output" | grep -qi 'CN=Android Debug'; then
               echo "::error::Debug-signed APK detected: $apk"
               exit 1
             fi
+            for scheme in v2 v3; do
+              if ! echo "$output" | grep -qi "Verified using $scheme scheme.*: true"; then
+                echo "::error::Missing $scheme signature: $apk"
+                exit 1
+              fi
+            done
           done
 
       - name: Create release metadata

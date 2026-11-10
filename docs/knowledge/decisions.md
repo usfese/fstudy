@@ -263,6 +263,7 @@
   4. 项目不使用 Google Play，因此不生成 AAB，用户直接安装 APK。
   5. 签名材料只保存在本地和 GitHub Actions Secrets：`ANDROID_KEYSTORE_BASE64`、`ANDROID_KEYSTORE_PASSWORD`、`ANDROID_KEY_PASSWORD`、`ANDROID_KEY_ALIAS`。
   6. Release 构建缺少 `apps/mobile/android/key.properties` 时直接失败，禁止 debug 签名回退。
+  7. Release APK 显式启用 v2 + v3 签名；`release.yml` 用 `apksigner` 校验两者均为 true。`minSdk >= 24` 时 AGP 不生成 v1 签名，README 提供下载完整性、ABI 与旧签名冲突的安装排查步骤。
 - **理由**：GitHub Release 是当前唯一分发渠道；tag 驱动可保证版本、构建号和产物一一对应，避免手工构建造成版本漂移或误发 debug 包。
 - **影响**：每次发布必须先更新 `pubspec.yaml` 与 `CHANGELOG.md`，合并后再打 tag；已发布 tag 不应删除或复用。keystore 丢失将导致无法更新已安装应用，必须保留离线备份。
 - **依据**：用户决定（2026-10-23）；`.github/workflows/release.yml`；`.github/workflows/ci.yml`；`apps/mobile/android/app/build.gradle.kts`；`CONTRIBUTING.md`。
